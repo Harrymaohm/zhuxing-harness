@@ -11,9 +11,14 @@
 
 | 级别 | 命令执行 | 文件写入 |
 | --- | --- | --- |
-| `read-only`（默认） | 仅放行只读命令（黑名单拦截写类命令） | 全部拒绝 |
+| `read-only`（默认） | 仅放行只读命令；**只拦截明确的写意图** | 全部拒绝 |
 | `workspace-write` | 命令放行 | 仅允许工作区内路径 |
 | `danger-full-access` | 全放行 | 全放行 |
+
+**read-only 只拦写意图，放行只读查询**：
+
+- ✅ 放行：`git status/log/diff`、`grep/find/cat/head/tail/ls`、`sed` 查询（无 `-i`）、`awk` 查询、`npm view`、`pip list`、`curl` 查询（无 `-o`）、`echo $VAR`
+- ⛔ 拦截：`rm/mv/cp/mkdir/touch`、`sed -i`（原地写）、`curl -o`（下载写文件）、`npm install/publish/run`、`echo > file`、`vi/vim` 编辑、`git push/commit/tag`、`wget`、`chmod/chown`、`dd/mkfs/format`
 
 命令级精细控制：`deniedCommands`（最高优先级）/ `allowedCommands`（放行名单）。
 

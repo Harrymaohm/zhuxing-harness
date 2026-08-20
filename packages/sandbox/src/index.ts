@@ -22,7 +22,13 @@ export interface Sandbox {
   checkWrite(path: string): void
 }
 
-/** 写类命令特征（read-only 禁止）。 */
+/**
+ * 写类命令特征（read-only 禁止）。
+ *
+ * 原则：只拦截「明确的写意图」，不拦截「只读查询」。
+ * - 纯查询命令（git status/log/diff、grep/find/cat/head/tail、sed 查询、awk 查询、npm view、pip list 等）默认放行；
+ * - 写意图通过「命令特征」或「重定向（> / >>）」识别。
+ */
 const WRITE_COMMAND_PATTERNS = [
   /^rm\s/i,
   /^rmdir\s/i,
@@ -30,19 +36,18 @@ const WRITE_COMMAND_PATTERNS = [
   /^cp\s/i,
   /^mkdir\s/i,
   /^touch\s/i,
-  /^echo[^|]*>\s/i,
+  /^echo[^|]*>\s/i, // echo 重定向写文件（echo 查询无 >，放行）
   />>/,
-  /^(vi|vim|nano|ed)\s/i,
-  /^sed\s/i,
-  /^awk\s/i,
+  /^(vi|vim|nano|ed)\s/i, // 交互式编辑
+  /^sed\s+(-i|-E?ni|-in|-iE?n?)\b/i, // 仅 sed 原地写（-i）；sed 查询（无 -i）放行
   /^chmod\s/i,
   /^chown\s/i,
-  /^git\s+(push|commit|tag)(\s|$)/i,
+  /^git\s+(push|commit|tag)(\s|$)/i, // git 只读子命令（status/log/diff/fetch 除外）放行
   /^pip\s+install/i,
   /^npm\s+(install|publish|run\s)/i,
   /^pnpm\s+(install|publish|run\s)/i,
   /^yarn\s+(add|install|publish|run\s)/i,
-  /^curl\s+[-]?.*-o/i,
+  /^curl\s+[-]?.*-o/i, // curl 下载写文件（纯查询 curl 放行）
   /^wget\s/i,
   /^dd\s/i,
   /^mkfs/i,

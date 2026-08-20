@@ -2,6 +2,20 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 安全策略优化
+
+- 沙箱 read-only 改为「只拦截明确的写意图，放行只读查询」：修复 `sed` / `awk` 查询被误拦截的问题（`sed -n`/`awk '{print}'` 等查询命令现可正常执行；`sed -i` 原地写仍拦截）
+- 明确查询放行清单：`git status/log/diff`、`grep/find/cat/head/tail`、`npm view`、`pip list`、`curl`（无 `-o`）、`echo $VAR` 等
+- 文档（`docs/security.md`）同步细化级别行为说明
+
+### 新增
+
+- **Web UI（对话 / 工作 / 交付）**：`harness web` 启动（默认 3080）；HTTP + SSE 流式 API（health/sessions/config/chat）；React 前端（流式 token、工具进度卡片、会话侧栏、交付区、设置）
+- **`@zhuxing/harness-bundle`** 独立包：基础插件组合层（cli 与 web 共用，消除循环依赖）
+- CLI `web` 命令；发布顺序更新为 12 包拓扑
+
 ## [0.1.0] - 2026-08-20
 
 ### 工程与发布（商用化）
