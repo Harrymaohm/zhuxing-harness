@@ -1,0 +1,7 @@
+# hello-plugin 接入示例：通过 patch 配置把外部插件挂载进 harness
+# 用法：
+#   harness run -p examples/hello-plugin.patch.yml "用 hello 工具打个招呼"
+#   harness list -p examples/hello-plugin.patch.yml
+plugins:
+  - id: hello-plugin
+    path: ./hello-plugin/src/index.ts

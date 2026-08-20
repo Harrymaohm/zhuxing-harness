@@ -1,0 +1,38 @@
+{
+  "name": "zhuxing-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "筑星 Harness —— 可随意接入插件的 Agent Harness 体系",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "bin": {
+    "harness": "packages/cli/dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:e2e": "vitest run tests",
+    "typecheck": "pnpm -r typecheck",
+    "harness": "node packages/cli/dist/cli.js",
+    "bench": "node scripts/bench.mjs",
+    "bundle": "node scripts/bundle-cli.mjs",
+    "check": "pnpm -r build && pnpm typecheck && pnpm -r test && pnpm test:e2e"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@zhuxing/harness-agent": "workspace:^0.1.0",
+    "@zhuxing/harness-cli": "workspace:^0.1.0",
+    "@zhuxing/harness-config": "workspace:^0.1.0",
+    "@zhuxing/harness-kernel": "workspace:^0.1.0",
+    "@zhuxing/harness-llm": "workspace:^0.1.0",
+    "@zhuxing/harness-sandbox": "workspace:^0.1.0",
+    "@zhuxing/harness-session": "workspace:^0.1.0",
+    "@zhuxing/harness-tools": "workspace:^0.1.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

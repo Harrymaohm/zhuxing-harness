@@ -1,0 +1,37 @@
+{
+  "name": "@zhuxing/harness-cli",
+  "version": "0.1.0",
+  "description": "筑星 Harness CLI：run / validate / create-plugin / list",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "harness": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@zhuxing/harness-agent": "workspace:^0.1.0",
+    "@zhuxing/harness-config": "workspace:^0.1.0",
+    "@zhuxing/harness-kernel": "workspace:^0.1.0",
+    "@zhuxing/harness-llm": "workspace:^0.1.0",
+    "@zhuxing/harness-sandbox": "workspace:^0.1.0",
+    "@zhuxing/harness-session": "workspace:^0.1.0",
+    "@zhuxing/harness-tools": "workspace:^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

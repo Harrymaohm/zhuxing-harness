@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-bin/
+*.tsbuildinfo
+.pnpm-store/
+.vitest/
+coverage/
+.harness-cache/
+plugins/
