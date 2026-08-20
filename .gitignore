@@ -10,3 +10,4 @@ coverage/
 .harness-cache/
 plugins/
 *.tgz
+scripts/nsis/.installer.bom.nsi
