@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path'
 
 const ROOT = resolve(import.meta.dirname, '..')
 /** 依赖拓扑顺序：被依赖者先发布。 */
-const ORDER = ['kernel', 'session', 'sandbox', 'llm', 'tools', 'config', 'agent', 'sdk', 'cli', 'harness']
+const ORDER = ['kernel', 'session', 'sandbox', 'llm', 'tools', 'config', 'agent', 'bundle', 'sdk', 'web', 'cli', 'harness']
 const dryRun = !process.argv.includes('--no-dry-run')
 const skipCheck = process.argv.includes('--skip-check')
 

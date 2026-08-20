@@ -38,7 +38,7 @@ function runShell(command: string, cwd: string): Promise<{ text: string }> {
 
 /**
  * 基础 bundle：以插件形态提供沙箱、会话、工具、模型、Agent 循环。
- * 每一层都可被用户 patch 替换（无特权核心）。
+ * 每一层都可被用户 patch 替换（无特权核心）。cli 与 web 共用。
  */
 export function baseBundlePlugins(opts: BaseBundleOptions): PluginDefinition[] {
   const workspace = resolve(opts.workspace)

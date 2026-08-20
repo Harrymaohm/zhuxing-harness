@@ -27,6 +27,17 @@ pnpm harness --help        # 或 node packages/cli/dist/cli.js
 
 ## 快速开始
 
+### Web UI（对话 / 工作 / 交付）
+
+```bash
+harness web                 # 启动 Web UI，默认 http://127.0.0.1:3080
+harness web --port 8080     # 指定端口
+```
+
+浏览器打开后在「设置」中配置 API Key / 模型 / 工作区，即可对话并实时观察工具调用与交付结果。
+
+### 命令行
+
 ```bash
 # 1. 配置凭证（一次性，交互式）
 harness login

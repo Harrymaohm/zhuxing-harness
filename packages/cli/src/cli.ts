@@ -11,7 +11,7 @@ import { createHarness, normalizePlugin, HarnessError, maskSecrets } from '@zhux
 import type { SessionService } from '@zhuxing/harness-session'
 import { FileSessionStore } from '@zhuxing/harness-session'
 import type { AgentResult } from '@zhuxing/harness-agent'
-import { baseBundlePlugins } from './base-bundle.js'
+import { baseBundlePlugins } from '@zhuxing/harness-bundle'
 import { loadConfig, saveConfig, loadDotEnv, configPath } from './config-store.js'
 import type { HarnessConfig } from './config-store.js'
 import { attachProgress, fmt, out, outError } from './output.js'
@@ -42,6 +42,7 @@ const HELP = `筑星 Harness CLI
   harness create-plugin <名称>      生成插件脚手架
   harness install <插件目录> [--as <名称>]  安装本地插件到 plugins/
   harness list [选项]              列出配置解析出的插件
+  harness web [--port <n>]        启动 Web UI（对话/工作/交付，默认端口 3080）
   harness doctor [--network]       环境自检（版本/配置/目录/端点）
   harness completion [bash|zsh]    生成 shell 补全脚本
   harness version / -v             显示版本
@@ -112,6 +113,9 @@ async function main(): Promise<void> {
       break
     case 'doctor':
       await cmdDoctor(rest)
+      break
+    case 'web':
+      await cmdWeb(rest)
       break
     case 'version':
     case '-v':
@@ -758,6 +762,28 @@ async function cmdDev(args: string[]): Promise<void> {
 
   out('\n正在退出…')
   await app.dispose()
+}
+
+/** 启动 Web UI（对话 / 工作 / 交付）。 */
+async function cmdWeb(args: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      port: { type: 'string' },
+      host: { type: 'string' },
+    },
+  })
+  const { startWebServer } = await import('@zhuxing/harness-web')
+  const handle = await startWebServer({
+    port: values.port ? Number(values.port) : 3080,
+    host: values.host ?? '127.0.0.1',
+  })
+  out(`${fmt.green('✓')} 筑星 Harness Web UI 已启动：${handle.url}`)
+  out('（Ctrl-C 退出）')
+  await new Promise<void>((resolveStop) => {
+    process.once('SIGINT', resolveStop)
+  })
+  await new Promise<void>((resolveClose) => handle.server.close(() => resolveClose()))
 }
 
 /** 环境自检：版本、配置、目录可写、可选端点连通性。 */

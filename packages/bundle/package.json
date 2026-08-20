@@ -1,23 +1,21 @@
 {
-  "name": "@zhuxing/harness-cli",
+  "name": "@zhuxing/harness-bundle",
   "version": "0.1.0",
-  "description": "筑星 Harness CLI：run / validate / create-plugin / list",
+  "description": "筑星 Harness 基础 bundle：以插件形态组合沙箱/会话/工具/模型/循环（cli 与 web 共用）",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "harness": "./dist/cli.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./dist/cli.js": "./dist/cli.js"
+    }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -25,21 +23,14 @@
   },
   "dependencies": {
     "@zhuxing/harness-agent": "workspace:^0.1.0",
-    "@zhuxing/harness-bundle": "workspace:^0.1.0",
-    "@zhuxing/harness-config": "workspace:^0.1.0",
     "@zhuxing/harness-kernel": "workspace:^0.1.0",
     "@zhuxing/harness-llm": "workspace:^0.1.0",
     "@zhuxing/harness-sandbox": "workspace:^0.1.0",
     "@zhuxing/harness-session": "workspace:^0.1.0",
-    "@zhuxing/harness-tools": "workspace:^0.1.0",
-    "@zhuxing/harness-web": "workspace:^0.1.0"
+    "@zhuxing/harness-tools": "workspace:^0.1.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }
