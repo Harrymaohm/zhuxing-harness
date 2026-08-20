@@ -1,0 +1,25 @@
+{
+  "name": "@zhuxing/harness",
+  "version": "0.1.0",
+  "description": "筑星 Harness —— 可随意接入插件的 Agent 运行时（官方聚合入口，全局安装后获得 harness 命令）",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "harness": "./bin/harness.mjs"
+  },
+  "files": [
+    "bin"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node ../../scripts/bundle-cli.mjs"
+  },
+  "dependencies": {
+    "@zhuxing/harness-cli": "workspace:^0.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

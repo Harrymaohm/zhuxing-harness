@@ -136,6 +136,12 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.1)(yaml@2.9.0)
 
+  packages/harness:
+    dependencies:
+      '@zhuxing/harness-cli':
+        specifier: workspace:^0.1.0
+        version: link:../cli
+
   packages/kernel:
     devDependencies:
       typescript:
