@@ -7,3 +7,4 @@ dist-bin/
 coverage/
 .harness-cache/
 plugins/
+*.tgz

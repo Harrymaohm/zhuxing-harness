@@ -94,9 +94,13 @@ cli —— 组合入口（base bundle 全部能力均为插件，可整体替换
 
 ## 文档
 
-- [计划书.md](计划书.md) — 设计、里程碑、热插拔专项、商用化路线图
-- [优化报告.md](优化报告.md) — 性能/资源/体验/稳定性优化与测试结果
-- `docs/`（用户文档：快速开始、CLI 参考、插件开发、安全模型）— 建设中
+- [docs/quickstart.md](docs/quickstart.md) — 快速开始（5 分钟跑通）
+- [docs/cli.md](docs/cli.md) — CLI 命令参考
+- [docs/configuration.md](docs/configuration.md) — 配置（凭证 / patch / profile / 沙箱）
+- [docs/plugins.md](docs/plugins.md) — 插件开发指南
+- [docs/security.md](docs/security.md) — 安全模型
+- [计划书.md](计划书.md) — 设计、里程碑、商用化路线图
+- [优化报告.md](优化报告.md) — 优化内容与测试结果
 
 ## 许可
 
