@@ -11,6 +11,7 @@ import { createHarness, normalizePlugin, HarnessError, maskSecrets } from '@zhux
 import type { SessionService } from '@zhuxing/harness-session'
 import { FileSessionStore } from '@zhuxing/harness-session'
 import type { AgentResult } from '@zhuxing/harness-agent'
+import { foldResult } from '@zhuxing/harness-agent'
 import { baseBundlePlugins } from '@zhuxing/harness-bundle'
 import { loadConfig, saveConfig, loadDotEnv, configPath } from './config-store.js'
 import type { HarnessConfig } from './config-store.js'
@@ -62,6 +63,7 @@ run / dev 选项：
       --session-dir <目录>  会话持久化目录（默认 ~/.zhuxing-harness/sessions）
       --stream              逐 token 流式输出模型回答
       --json                输出结构化 JSON（用于脚本）
+      --summary             最终输出折叠为交付摘要（完整数据在会话日志）
       --timing              打印各阶段耗时
       --verbose             打印完整会话轨迹
       --log-level <l>       日志级别：trace|debug|info|warn|error
@@ -235,6 +237,7 @@ async function cmdRun(args: string[]): Promise<void> {
       timing: { type: 'boolean' },
       verbose: { type: 'boolean' },
       stream: { type: 'boolean' },
+      summary: { type: 'boolean' },
       'session-dir': { type: 'string' },
       task: { type: 'string' },
     },
@@ -352,6 +355,16 @@ async function cmdRun(args: string[]): Promise<void> {
           timing: timingReport,
         }),
       )
+    } else if (values.summary) {
+      // 最终输出折叠：生成交付摘要；完整数据仍保留在会话日志
+      const sessionService = app.pluginManager.get('harness-session')?.ctx.inject<SessionService>('sessionService')
+      const events = sessionService ? await (await sessionService.get(result.sessionId)).events() : []
+      const folded = foldResult(result, events)
+      out(`【交付摘要】${folded.summary}${folded.summary.length < result.content.length ? '…' : ''}`)
+      out(
+        `（步骤 ${folded.steps} · ${folded.finishedReason} · 工具 ${folded.toolsUsed.map((t) => `${t.name}×${t.calls}`).join(', ') || '无'} · 会话 ${folded.sessionId.slice(0, 8)}）`,
+      )
+      out(`完整数据：harness session show ${folded.sessionId.slice(0, 8)}`)
     } else {
       out('\n===== 结果 =====')
       out(result.content || '(无内容输出)')

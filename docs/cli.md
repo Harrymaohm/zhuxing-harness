@@ -30,6 +30,7 @@ harness run [选项] "任务描述"
 | `--session-dir <dir>` | 会话持久化目录（默认 `~/.zhuxing-harness/sessions`） |
 | `--stream` | 逐 token 流式输出 |
 | `--json` | 结构化 JSON 输出 |
+| `--summary` | 最终输出折叠为交付摘要（完整数据保留在会话日志） |
 | `--timing` | 打印阶段耗时 |
 | `--verbose` | 打印完整会话轨迹 |
 | `--log-level <l>` | `trace`/`debug`/`info`/`warn`/`error` |

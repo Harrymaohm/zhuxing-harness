@@ -35,6 +35,45 @@ export interface AgentResult {
   lastRaw?: unknown
 }
 
+/** 工具使用统计。 */
+export interface ToolUsageStat {
+  name: string
+  calls: number
+}
+
+/**
+ * 交付折叠视图：仅在「生成最终输出」时折叠，产出精炼摘要。
+ * 迭代过程中的全部中间数据（临时数据、过程变量、中间计算结果、步骤信息）
+ * 始终完整保留在会话日志中（`fullLogAvailable: true`），可随时回放/续跑。
+ */
+export interface FoldedDelivery {
+  summary: string
+  steps: number
+  finishedReason: AgentFinishedReason
+  toolsUsed: ToolUsageStat[]
+  sessionId: string
+  fullLogAvailable: true
+}
+
+/** 依据完整会话日志生成交付摘要（最终输出折叠）。 */
+export function foldResult(result: AgentResult, events: import('@zhuxing/harness-session').SessionEvent[]): FoldedDelivery {
+  const counts = new Map<string, number>()
+  for (const evt of events) {
+    if (evt.type === 'tool') {
+      const name = String((evt.payload as { name?: string }).name ?? '')
+      counts.set(name, (counts.get(name) ?? 0) + 1)
+    }
+  }
+  return {
+    summary: result.content.slice(0, 300),
+    steps: result.steps,
+    finishedReason: result.finishedReason,
+    toolsUsed: [...counts.entries()].map(([name, calls]) => ({ name, calls })),
+    sessionId: result.sessionId,
+    fullLogAvailable: true,
+  }
+}
+
 const DEFAULT_SYSTEM_PROMPT =
   'You are a helpful coding agent running inside the Zhuxing Harness. ' +
   'Read the provided tools and call them when needed to accomplish the task. ' +

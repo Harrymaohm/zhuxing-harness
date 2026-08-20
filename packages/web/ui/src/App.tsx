@@ -349,7 +349,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   return (
     <div className="msg assistant">
       <div className={`bubble ${msg.error ? 'err' : ''}`}>
-        <div className="assistant-content">{msg.content || (msg.steps ? '' : '思考中…')}</div>
+        <AssistantContent msg={msg} />
         {msg.finishedReason && (
           <div className="delivery">
             <span className="badge ok">交付完成</span>
@@ -361,6 +361,24 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         )}
       </div>
     </div>
+  )
+}
+
+/** 助手内容：长结果默认折叠展示（最终输出折叠），点击展开完整内容。 */
+function AssistantContent({ msg }: { msg: ChatMessage }) {
+  const [expanded, setExpanded] = useState(false)
+  const content = msg.content ?? ''
+  const long = content.length > 400
+  const shown = long && !expanded ? `${content.slice(0, 300)}…` : content
+  return (
+    <>
+      <div className="assistant-content">{shown || (msg.steps ? '' : '思考中…')}</div>
+      {long && (
+        <button className="fold-toggle" onClick={() => setExpanded(!expanded)}>
+          {expanded ? '收起 ↑' : `展开 ↓（完整 ${content.length} 字符）`}
+        </button>
+      )}
+    </>
   )
 }
 
