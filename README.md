@@ -25,6 +25,22 @@ pnpm install && pnpm build
 pnpm harness --help        # 或 node packages/cli/dist/cli.js
 ```
 
+### Windows 安装包（NSIS，二次分发）
+
+```bash
+pnpm build && pnpm bundle
+pnpm --filter @zhuxing/harness-web build:ui
+node scripts/build-nsis.mjs        # 生成 dist-install/zhuxing-harness-setup-<版本>.exe
+```
+
+安装包特性：
+- 免管理员安装（`%LOCALAPPDATA%\ZhuxingHarness`），自动写入用户 PATH
+- 内置便携 Node 运行时 + Web UI + esbuild（离线可用，无需预装 Node）
+- 开始菜单快捷方式、卸载器（移除文件与 PATH）
+- 安装后直接使用：`harness run` / `harness web`
+
+> 构建工具（NSIS 3.10、便携 Node 22）置于 `tools/`（gitignore），首次构建前需下载到该目录。
+
 ## 快速开始
 
 ### Web UI（对话 / 工作 / 交付）

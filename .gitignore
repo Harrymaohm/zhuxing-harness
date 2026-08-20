@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-bin/
+dist-install/
+tools/
 *.tsbuildinfo
 .pnpm-store/
 .vitest/

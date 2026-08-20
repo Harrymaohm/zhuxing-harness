@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Windows 安装包（NSIS，二次分发）
+
+- `scripts/build-nsis.mjs` + `scripts/nsis/installer.nsi`：生成 `zhuxing-harness-setup-<版本>.exe`
+- 内置便携 Node 22 + 单文件 CLI + Web UI 静态资源 + esbuild 运行时，免管理员安装（`%LOCALAPPDATA%`）、自动写入用户 PATH、开始菜单快捷方式、卸载器
+- `scripts/build-dist.mjs`：组装安装内容目录（规避 Node `cpSync` 在中文路径下的原生崩溃，改用自定义递归复制）
+- 安装/卸载/运行全链路静默冒烟验证通过（version / doctor / validate / web / 卸载）
+
 ### 迭代数据保留与最终折叠
 
 - 迭代过程中全部中间数据（临时数据、过程变量、中间计算结果、步骤信息）完整保留在会话日志，并持续参与后续迭代（`AgentLoop` 步骤间消息全量累积 + 工具参数/结果完整落日志）

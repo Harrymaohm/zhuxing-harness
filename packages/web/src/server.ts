@@ -106,9 +106,20 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
+/** Web UI 静态目录默认解析：源码态为包内 dist-ui；安装态可用 HARNESS_WEB_UI_DIR 覆盖。 */
+function defaultUiDir(): string {
+  const fromEnv = process.env.HARNESS_WEB_UI_DIR
+  if (fromEnv) return resolve(fromEnv)
+  try {
+    return resolve(fileURLToPath(new URL('../dist-ui', import.meta.url)))
+  } catch {
+    return resolve(process.cwd(), 'dist-ui')
+  }
+}
+
 export async function startWebServer(options: WebServerOptions = {}): Promise<WebServerHandle> {
   const host = options.host ?? '127.0.0.1'
-  const uiDir = options.uiDir ?? resolve(fileURLToPath(new URL('../dist-ui', import.meta.url)))
+  const uiDir = options.uiDir ?? defaultUiDir()
 
   const server = http.createServer((req, res) => {
     void handleRequest(req, res, uiDir)
