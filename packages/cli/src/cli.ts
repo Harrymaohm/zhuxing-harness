@@ -55,7 +55,7 @@ run / dev 选项：
       --base-url <url>      OpenAI 兼容端点（默认 https://api.deepseek.com/v1）
       --model <name>        模型名（默认 deepseek-v4-flash）
   -w, --workspace <目录>    工作区（默认：配置或当前目录）
-      --level <级别>        沙箱级别：read-only | workspace-write | danger-full-access（默认 read-only）
+      --level <级别>        沙箱级别：read-only | workspace-write | danger-full-access（默认 danger-full-access）
       --max-steps <n>       Agent 最大步数（默认 20）
       --temperature <t>     采样温度
       --system-prompt <s>   系统提示
@@ -147,7 +147,7 @@ async function cmdLogin(): Promise<void> {
     const baseUrl = (await rl.question(`Base URL [${'https://api.deepseek.com/v1'}]：`)).trim()
     const model = (await rl.question(`模型 [${'deepseek-v4-flash'}]：`)).trim()
     const workspace = (await rl.question(`工作区 [${process.cwd()}]：`)).trim()
-    const levelRaw = (await rl.question(`沙箱级别 [read-only]（read-only | workspace-write | danger-full-access）：`)).trim()
+    const levelRaw = (await rl.question(`沙箱级别 [danger-full-access]（read-only | workspace-write | danger-full-access）：`)).trim()
 
     const next: HarnessConfig = {
       ...existing,
@@ -155,7 +155,7 @@ async function cmdLogin(): Promise<void> {
       baseUrl: baseUrl || 'https://api.deepseek.com/v1',
       model: model || 'deepseek-v4-flash',
       workspace: workspace || process.cwd(),
-      level: (levelRaw || 'read-only') as HarnessConfig['level'],
+      level: (levelRaw || 'danger-full-access') as HarnessConfig['level'],
     }
     const path = saveConfig(next)
     out(`✓ 配置已保存到 ${path}`)
@@ -256,7 +256,7 @@ async function cmdRun(args: string[]): Promise<void> {
   if (!apiKey) {
     throw new HarnessError('缺少 API Key', 'AUTH', '请运行 harness login 配置，或通过 --api-key / DEEPSEEK_API_KEY 提供。')
   }
-  const level = (values.level ?? cfg.level ?? 'read-only') as 'read-only' | 'workspace-write' | 'danger-full-access'
+  const level = (values.level ?? cfg.level ?? 'danger-full-access') as 'read-only' | 'workspace-write' | 'danger-full-access'
   const workspace = resolve(values.workspace ?? cfg.workspace ?? cwd)
   const json = Boolean(values.json)
   const timing = Boolean(values.timing)
@@ -648,7 +648,7 @@ async function cmdDev(args: string[]): Promise<void> {
   if (!apiKey) {
     throw new HarnessError('缺少 API Key', 'AUTH', '请运行 harness login 配置，或通过 --api-key / DEEPSEEK_API_KEY 提供。')
   }
-  const level = (values.level ?? cfg.level ?? 'read-only') as 'read-only' | 'workspace-write' | 'danger-full-access'
+  const level = (values.level ?? cfg.level ?? 'danger-full-access') as 'read-only' | 'workspace-write' | 'danger-full-access'
   const workspace = resolve(values.workspace ?? cfg.workspace ?? cwd)
   const sessionDir =
     values['session-dir'] ?? process.env.HARNESS_SESSION_DIR ?? join(homedir(), '.zhuxing-harness', 'sessions')
@@ -811,7 +811,7 @@ async function cmdDoctor(args: string[]): Promise<void> {
     dirOk = false
   }
   checks.push({ name: '会话目录', ok: dirOk, detail: sessionDir })
-  checks.push({ name: '沙箱默认级别', ok: true, detail: cfg.level ?? 'read-only（安全默认）' })
+  checks.push({ name: '沙箱默认级别', ok: true, detail: cfg.level ?? 'danger-full-access（最高权限，可通过 --level 降级）' })
   checks.push({ name: '模型默认', ok: true, detail: cfg.model ?? 'deepseek-v4-flash' })
 
   if (values.network) {

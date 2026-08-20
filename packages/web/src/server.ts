@@ -216,7 +216,7 @@ async function handleChat(res: ServerResponse, message: string, sessionId?: stri
       baseUrl: cfg.baseUrl ?? 'https://api.deepseek.com/v1',
       model: cfg.model ?? 'deepseek-v4-flash',
       workspace,
-      level: (cfg.level ?? 'read-only') as PermissionLevel,
+      level: (cfg.level ?? 'danger-full-access') as PermissionLevel,
     })) {
       const cfgOpt = def.name === 'harness-session' ? { storeDir: sessionDir } : undefined
       await app.mount(def, cfgOpt ? { config: cfgOpt } : undefined)

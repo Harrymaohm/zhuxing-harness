@@ -23,7 +23,7 @@ harness run [选项] "任务描述"
 | `--base-url <url>` | OpenAI 兼容端点（默认 `https://api.deepseek.com/v1`） |
 | `--model <name>` | 模型名（默认 `deepseek-v4-flash`） |
 | `-w, --workspace <dir>` | 工作区（默认：配置或当前目录） |
-| `--level <级别>` | `read-only` / `workspace-write` / `danger-full-access`（默认 `read-only`） |
+| `--level <级别>` | `read-only` / `workspace-write` / `danger-full-access`（默认 `danger-full-access`） |
 | `--max-steps <n>` | 最大步数（默认 20） |
 | `--temperature <t>` | 采样温度 |
 | `--system-prompt <s>` | 自定义系统提示 |

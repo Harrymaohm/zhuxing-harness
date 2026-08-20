@@ -75,7 +75,7 @@ harness run "总结当前目录的结构"
 | `--timing` | 打印各阶段耗时 |
 | `--verbose` | 打印完整会话轨迹 |
 | `-p, --patch <file>` | 接入外部插件 |
-| `--level <级别>` | 沙箱级别（默认 read-only） |
+| `--level <级别>` | 沙箱级别（默认 danger-full-access，最高权限） |
 | `-w, --workspace <dir>` | 工作区 |
 
 ## 5. 接入一个插件

@@ -9,7 +9,7 @@
 - **一切皆插件**：`kernel` 只负责上下文/生命周期/依赖注入/事件，无 Agent 业务逻辑
 - **热插拔**：运行时挂载/卸载/重载，级联清理消费者、循环依赖检测、in-flight 追踪
 - **可追溯**：模型可见即记录（追加式会话日志），支持 fork / replay / 会话管理
-- **安全默认**：沙箱三级策略（read-only / workspace-write / danger-full-access），凭证持久化 + 输出脱敏
+- **安全可配置**：沙箱三级策略（danger-full-access 默认 / workspace-write / read-only），凭证持久化 + 输出脱敏
 - **多模型**：OpenAI 兼容端点，默认 DeepSeek（`deepseek-v4-flash` / `deepseek-v4-pro`）
 - **流式输出**：`--stream` 逐 token 渲染
 - **开发体验**：`harness dev` 监听插件变化自动热重载并重跑

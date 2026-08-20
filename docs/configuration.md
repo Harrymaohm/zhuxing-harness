@@ -77,9 +77,9 @@ harness list -p examples/hello-plugin.patch.yml        # 查看解析结果
 
 | 级别 | 命令 | 写入 |
 | --- | --- | --- |
-| `read-only`（默认） | 仅放行只读命令 | 全部拒绝 |
+| `danger-full-access`（默认） | 全放行 | 全放行 |
 | `workspace-write` | 命令放行 | 仅工作区内路径 |
-| `danger-full-access` | 全放行 | 全放行 |
+| `read-only` | 仅放行只读命令 | 全部拒绝 |
 
 更严格的命令级控制：`deniedCommands` / `allowedCommands` 策略在沙箱插件配置中设置。
 
