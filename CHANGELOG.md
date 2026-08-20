@@ -4,6 +4,14 @@
 
 ## [0.1.0] - 2026-08-20
 
+### 工程与发布（商用化）
+
+- 发布工具链：`scripts/publish.mjs`（拓扑顺序发布 + publishConfig public + 发布前 `pnpm check` 门禁）、`scripts/bump.mjs`（统一版本）、`scripts/bundle-cli.mjs`（单文件二进制）
+- 聚合安装包 `@zhuxing/harness`：`npm i -g` 一条命令获得全局 `harness`
+- 质量门禁 `pnpm check`、CI（GitHub Actions，ubuntu+windows × node20/22）、git 版本控制、README / LICENSE(MIT) / CHANGELOG
+- 用户文档：`docs/`（quickstart / cli / configuration / plugins / security）
+- 退出码规范（0/1/2）、`harness version` / `harness doctor` 环境自检
+
 ### 新增（首个可运行版本，M0–M5 里程碑）
 
 - **内核（kernel）**：Context / 生命周期 / 依赖注入 / 事件总线 / Service 注册；热插拔（挂载/卸载/重载、级联清理、循环依赖检测、in-flight 追踪、pending 等待超时）
