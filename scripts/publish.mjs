@@ -15,9 +15,16 @@ const ROOT = resolve(import.meta.dirname, '..')
 /** 依赖拓扑顺序：被依赖者先发布。 */
 const ORDER = ['kernel', 'session', 'sandbox', 'llm', 'tools', 'config', 'agent', 'sdk', 'cli', 'harness']
 const dryRun = !process.argv.includes('--no-dry-run')
+const skipCheck = process.argv.includes('--skip-check')
 
 if (!dryRun) {
   console.log('⚠ 即将正式发布到 npm registry。确认已 `npm login`。')
+}
+
+// 0. 发布前质量门禁（正式发布默认强制；dry-run 可跳过以提速）
+if (!skipCheck) {
+  console.log('\n=== 发布前门禁：pnpm check ===')
+  execSync('pnpm check', { cwd: ROOT, stdio: 'inherit' })
 }
 
 // 1. 注入 publishConfig.access = public
