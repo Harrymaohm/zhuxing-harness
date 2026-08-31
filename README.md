@@ -24,14 +24,16 @@ Models, tools, sessions, sandboxes, storage, the agent loop, and CLI output are 
 Run from source:
 
 ```bash
-pnpm install && pnpm build
+pnpm install
+pnpm build
 pnpm harness --help        # or node packages/cli/dist/cli.js
 ```
 
 ### Windows installer (NSIS, redistribution)
 
 ```bash
-pnpm build && pnpm bundle
+pnpm build
+pnpm bundle
 pnpm --filter @zhuxing/harness-web build:ui
 node scripts/build-nsis.mjs        # generates dist-install/zhuxing-harness-setup-<version>.exe
 ```
