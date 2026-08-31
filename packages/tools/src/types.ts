@@ -8,6 +8,8 @@ export interface ToolExecuteContext {
   logger?: Logger
   /** 执行前/后事件（tools/before-exec、tools/after-exec）。 */
   emit?: (event: string, payload?: unknown) => Promise<boolean>
+  /** 当前运行的会话 id（用于会话私有记忆等需要感知当前对话的工具）。 */
+  sessionId?: string
 }
 
 /** 工具统一结果。 */

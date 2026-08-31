@@ -1,0 +1,19 @@
+{
+  "name": "@zhuxing/harness-specs",
+  "version": "0.3.7",
+  "description": "筑星 Harness 专业化能力包管理：zip 能力包（manifest + 技能 yaml + 内置知识文档）安装 / 启用 / 禁用 / 移除，供专业用户按领域（建筑 / 电网等）使用",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "publishConfig": { "access": "public" },
+  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit", "test": "vitest run" },
+  "dependencies": { "adm-zip": "^0.6.0" },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

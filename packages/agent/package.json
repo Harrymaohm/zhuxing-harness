@@ -1,8 +1,9 @@
 {
   "name": "@zhuxing/harness-agent",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness Agent 循环：turn/step 编排、工具编排、agent/* 事件",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

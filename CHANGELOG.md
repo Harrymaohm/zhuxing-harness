@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+### Web 设置面板：主模型 / 子模型 / 生图模型 / 运行环境
+
+- 设置模态升级为分区式（Tab）：主模型（Key/端点/模型名）、子模型（卡片式增删：ID/模型名/显示名/上下文窗口/能力标签点选/独立端点与 Key）、生图模型（模型/端点/Key/尺寸）、运行环境（工作区/沙箱级别下拉）
+- 新增 `harness-image-tools` 插件：配置 `imageModel` 后注册 `generate_image` 工具（OpenAI 兼容 `/images/generations`，支持 url 与 base64 响应）；CLI run/dev 与 Web 均透传 `imageModel` 配置
+- 密钥安全：`GET /api/config` 对主/子模型/生图 apiKey 全部脱敏；保存时未修改的密钥不回传，服务端按模型 id 合并保留旧值（新增回归测试）
+
+### 多子模型路由与编排（`@zhuxing/harness-model-router`）
+
+- 新包 `packages/model-router`：模型注册表（热插拔，register 返回 disposer）、实时性能监控（滑动窗口：成功率/延迟/token/成本）、选择算法（任务意图 + 上下文适配 + 性能评分，权重可配）、统一交互入口（`ModelRouter` 实现 `ChatProvider`，失败自动降级）、模型间通信协议（`ModelOrchestrator.delegate/listModels`）
+- bundle 新增 `harness-model-router` 插件：`config.models` 多模型注册，注册 `pick_model` / `list_models` 工具供主编排模型动态委派子任务；提供服务 `modelRegistry/modelMonitor/modelSelector/modelRouter/orchestrator`；插件卸载自动注销全部子模型
+- CLI：新增 `harness models list/stats`；`run`/`dev` 支持 `--models <json>` 与 `--model-id <id>`（显式指定子模型，经路由器保留监控与降级）
+- Web：`config.models` 透传；新增 `GET /api/models`
+- 文档：`docs/multi-model.md`；发布拓扑顺序加入 model-router（13 包）
+
 ### Windows 安装包（NSIS，二次分发）
 
 - `scripts/build-nsis.mjs` + `scripts/nsis/installer.nsi`：生成 `zhuxing-harness-setup-<版本>.exe`

@@ -1,9 +1,10 @@
 {
   "name": "hello-plugin",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "private": true,
   "description": "示例插件：展示如何通过 SDK 注册工具",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./src/index.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json"

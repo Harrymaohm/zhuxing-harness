@@ -1,8 +1,9 @@
 {
   "name": "@zhuxing/harness-sandbox",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness 沙箱：权限策略分级（read-only / workspace-write / danger-full-access）",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

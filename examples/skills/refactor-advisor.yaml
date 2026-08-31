@@ -1,0 +1,28 @@
+name: refactor-advisor
+version: 0.1.0
+description: 分析代码文件并给出重构建议（坏味道、模式建议、步骤拆解）
+icon: 🔧
+category: dev
+tags: [code, refactor]
+visibility: public
+inputs:
+  type: object
+  properties:
+    path:
+      type: string
+      description: 要分析的代码文件路径
+    focus:
+      type: string
+      description: 关注点（如 可读性 / 性能 / 可测试性）
+  required: [path]
+tools: [read_file, shell, list_dir]
+template: |
+  你是重构专家。请分析代码文件 {{path}} 并给出重构建议。
+
+  关注点：{{focus}}
+
+  步骤：
+  1. 先用 read_file 读取 {{path}} 的内容
+  2. 识别代码坏味道（长函数 / 重复 / 深嵌套 / 命名问题）
+  3. 提出模式建议（提取函数 / 策略模式 / 引入参数对象）
+  4. 给出可执行的重构步骤（每步独立可验证）

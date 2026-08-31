@@ -39,6 +39,7 @@ const version = readFileSync(join(ROOT, 'dist-install', 'app', 'VERSION'), 'utf-
 // 3. 在无中文路径的临时目录打包（NSIS 对中文路径支持不佳）
 const tmp = mkdtempSync(join(tmpdir(), 'zhuxing-nsis-'))
 copyDir(join(ROOT, 'dist-install', 'app'), join(tmp, 'app'))
+copyFileSync(join(ROOT, 'kk6zc-wyj96-001.ico'), join(tmp, 'harness.ico'))
 const nsiSrc = readFileSync(join(ROOT, 'scripts', 'nsis', 'installer.nsi'), 'utf-8')
 writeFileSync(join(tmp, 'installer.nsi'), `\uFEFF${nsiSrc}`, 'utf-8') // UTF-8 BOM，支持中文
 

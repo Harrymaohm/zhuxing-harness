@@ -1,0 +1,10 @@
+{
+  "latestVersion": "0.3.8",
+  "channel": "stable",
+  "publishedAt": "2026-08-31T10:51:53.802Z",
+  "updateFile": "harness-update-0.3.8.zip",
+  "sha256": "886743dbe7373946c7dbafa08b04e1b3f6426b3896bc54386817aac292a23e98",
+  "size": 1164168,
+  "releaseNotes": "",
+  "minVersion": "0.3.8"
+}

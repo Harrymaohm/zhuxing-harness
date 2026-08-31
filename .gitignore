@@ -11,3 +11,8 @@ coverage/
 plugins/
 *.tgz
 scripts/nsis/.installer.bom.nsi
+
+# IDE / 临时工具目录（非源码、分发产物或文档，不上传）
+.trae/
+_pptx_test/
+*.ico.bak

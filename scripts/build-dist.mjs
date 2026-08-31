@@ -51,11 +51,16 @@ function main() {
   // 1. 前置产物校验
   need(join(ROOT, 'dist-bin', 'harness.cjs'), 'pnpm build && pnpm bundle')
   need(join(ROOT, 'packages', 'web', 'dist-ui', 'index.html'), 'pnpm --filter @zhuxing/harness-web build:ui')
+  need(join(ROOT, 'kk6zc-wyj96-001.ico'), '准备软件图标 kk6zc-wyj96-001.ico')
   need(join(TOOLS, 'node', 'node-v22.14.0-win-x64', 'node.exe'), '下载便携 Node 到 tools/')
   need(join(TOOLS, 'nsis', 'nsis-3.10', 'makensis.exe'), '下载 NSIS 到 tools/')
 
-  // 2. 清空并重建 app 目录
-  rmSync(APP, { recursive: true, force: true })
+  // 2. 清空并重建 app 目录（EBUSY 时降级为覆盖组装，避免中文路径偶发锁定中断）
+  try {
+    rmSync(APP, { recursive: true, force: true })
+  } catch {
+    console.warn('⚠ 无法完全清空 dist-install/app（可能被其他进程占用），改为覆盖组装。')
+  }
   mkdirSync(join(APP, 'node'), { recursive: true })
   mkdirSync(join(APP, 'bin'), { recursive: true })
   mkdirSync(join(APP, 'web'), { recursive: true })
@@ -87,11 +92,28 @@ function main() {
 setlocal
 set "HARNESS_ROOT=%~dp0"
 set "HARNESS_WEB_UI_DIR=%HARNESS_ROOT%web\\dist-ui"
+set "HARNESS_ICON_PATH=%HARNESS_ROOT%harness.ico"
 "%HARNESS_ROOT%node\\node.exe" "%HARNESS_ROOT%bin\\harness.cjs" %*
 exit /b %errorlevel%
 `
   writeFileSync(join(APP, 'harness.cmd'), launcher, 'utf-8')
   console.log('✓ harness.cmd')
+  const webLauncher = `@echo off
+setlocal
+set "HARNESS_ROOT=%~dp0"
+set "HARNESS_WEB_UI_DIR=%HARNESS_ROOT%web\\dist-ui"
+set "HARNESS_ICON_PATH=%HARNESS_ROOT%harness.ico"
+"%HARNESS_ROOT%node\\node.exe" "%HARNESS_ROOT%bin\\web-launcher.mjs"
+exit /b %errorlevel%
+`
+  writeFileSync(join(APP, 'harness-web.cmd'), webLauncher, 'utf-8')
+  console.log('✓ harness-web.cmd')
+  copyFileSync(join(ROOT, 'scripts', 'web-launcher.mjs'), join(APP, 'bin', 'web-launcher.mjs'))
+  console.log('✓ bin/web-launcher.mjs')
+  copyFileSync(join(ROOT, 'scripts', 'launch.vbs'), join(APP, 'bin', 'launch.vbs'))
+  console.log('✓ bin/launch.vbs')
+  copyFileSync(join(ROOT, 'kk6zc-wyj96-001.ico'), join(APP, 'harness.ico'))
+  console.log('✓ harness.ico')
 
   // 8. 版本信息
   writeFileSync(join(APP, 'VERSION'), `${version}\n`, 'utf-8')

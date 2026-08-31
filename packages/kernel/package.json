@@ -1,8 +1,9 @@
 {
   "name": "@zhuxing/harness-kernel",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness 内核：Context、生命周期、依赖注入、事件总线、Service 注册",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

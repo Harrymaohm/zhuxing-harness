@@ -4,6 +4,7 @@ import type { Session } from '@zhuxing/harness-session'
 import type { ToolExecuteContext, ToolRegistry, ToolResult } from '@zhuxing/harness-tools'
 import { toToolResultText } from '@zhuxing/harness-tools'
 import type { Logger } from '@zhuxing/harness-kernel'
+import { estimateMessagesTokens, manageContext, sanitizeMessages } from './context.js'
 
 export interface AgentDeps {
   llm: ChatProvider
@@ -22,6 +23,12 @@ export interface AgentOptions {
   temperature?: number
   /** 流式输出：每次模型增量文本回调（要求 provider 支持 stream）。 */
   onToken?: (token: string) => void
+  /** 上下文预算（token）：超出即滑动窗口 + 早期摘要（默认 32000）。 */
+  contextWindow?: number
+  /** 摘要触发阈值：低于该 token 数即触发（默认等于 contextWindow）。 */
+  summarizeThreshold?: number
+  /** 本轮用户消息附带的多模态图片附件（data URL，作为 image_url 内容片段）。 */
+  attachments?: Array<{ type: 'image'; dataUrl: string }>
 }
 
 export type AgentFinishedReason = 'stop' | 'max-steps' | 'rejected' | 'error'
@@ -89,20 +96,56 @@ export class AgentLoop {
     private opts: AgentOptions = {},
   ) {}
 
-  async run(userInput: string): Promise<AgentResult> {
+  async run(userInput: string, history?: ChatMessage[]): Promise<AgentResult> {
     const { llm, tools, session, sandbox, emit, logger } = this.deps
-    const maxSteps = this.opts.maxSteps ?? 20
+    const maxSteps = this.opts.maxSteps ?? 70
     const systemPrompt = this.opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
 
-    const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userInput },
-    ]
+    const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }]
+    // 历史续接：重建的会话历史（user/assistant/tool）拼接在 system 之后、本次输入之前
+    if (history && history.length > 0) messages.push(...history)
+    // 本轮用户输入：有图片附件时组装为多模态 content 数组，否则纯文本
+    const attachments = this.opts.attachments ?? []
+    const userContent: ChatMessage['content'] =
+      attachments.length > 0
+        ? [{ type: 'text', text: userInput }, ...attachments.map((a) => ({ type: 'image_url' as const, image_url: { url: a.dataUrl } }))]
+        : userInput
+    messages.push({ role: 'user', content: userContent })
+
+    // 上下文管理：超预算时滑动窗口裁剪 + 早期摘要（只在 run 开始时执行一次）
+    const contextWindow = this.opts.contextWindow ?? 32000
+    const threshold = this.opts.summarizeThreshold ?? contextWindow
+    let historyTrimmed = false
+    let historySummarized = false
+    let keptCount = messages.length
+    if (estimateMessagesTokens(messages) > threshold) {
+      const managed = await manageContext(messages, { maxTokens: contextWindow, llm })
+      if (managed.trimmed) {
+        messages.length = 0
+        messages.push(...managed.messages)
+        historyTrimmed = true
+        historySummarized = managed.summarized
+        keptCount = managed.keptCount
+      }
+    }
+    if (historyTrimmed) {
+      await session.append('system', 'agent', {
+        contextTrimmed: true,
+        summarized: historySummarized,
+        keptCount,
+      })
+    }
+
     const executeCtx: ToolExecuteContext = { sandbox, logger, emit }
     const sessionId = session.id
+    // 工具执行上下文携带当前会话 id，供 remember 等工具写入会话私有内容
+    executeCtx.sessionId = sessionId
 
-    // 模型可见即记录：用户输入入日志
-    await session.append('user', 'agent', { content: userInput })
+    // 模型可见即记录：用户输入入日志（含图片附件，供历史重建还原多模态上下文）
+    await session.append('user', 'agent', {
+      content: userInput,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    })
 
     for (let step = 0; step < maxSteps; step++) {
       // pre-step：策略插件可改写/拒绝本次模型请求
@@ -117,7 +160,8 @@ export class AgentLoop {
       const chatTools = tools.list().length > 0 ? tools.toChatTools() : undefined
       let result
       try {
-        result = await this.callLlm(llm, messages, {
+        // 发模型前清理序列：会话重建 / 上下文裁剪可能切断 tool_calls 与 tool 响应，统一兜底
+        result = await this.callLlm(llm, sanitizeMessages(messages), {
           tools: chatTools,
           model: this.opts.model,
           temperature: this.opts.temperature,
@@ -177,3 +221,5 @@ export class AgentLoop {
 }
 
 export { DEFAULT_SYSTEM_PROMPT }
+export { estimateTokens, estimateMessagesTokens, manageContext, sanitizeMessages, summarizeHistory, contentText } from './context.js'
+export type { ManageContextOptions, ManageContextResult } from './context.js'

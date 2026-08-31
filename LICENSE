@@ -1,21 +1,63 @@
-MIT License
+Zhuxing Harness 双许可协议 / Dual License Agreement
+（源码可用 · 非商业免费 · 商业付费授权）
+(Source-Available · Free for Non-Commercial Use · Commercial License Required)
 
 Copyright (c) 2026 Zhuxing Harness contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+---
+/ 中文版 /
+---
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+本软件（以下简称“本软件”）采用“双许可”模式发布，任何获取本软件源码或副本的人或组织，均须遵守以下条款：
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+原创性与在先权利声明
+作者声明：本软件及其“一切皆插件”（everything-is-a-plugin）架构、设计理念与实现方案，均由作者独立原创，并于本文件所述首次公开发布之前即已存在。作者声明，上述设计理念与技术方案并非源自、复制或改编自 DeepSeek 或其任何产品（包括但不限于 DeepSeek Harness），作者亦不承认“一切皆插件”理念来源于上述产品。本声明仅用于确认作者之原创性与在先权利，不代表对他方产品的任何贬损或评价。
+
+一、免费许可（适用于非商业用途）
+任何个人、教育机构、研究机构，以及商业组织用于内部评估、学习、研究、非营利活动等非商业目的，均可免费使用、复制、修改、合并、发布本软件源码，并用于上述非商业场景。非商业使用必须完整保留本版权声明与本许可声明，且不得以任何形式移除。
+
+二、商业授权（付费）
+任何商业用途——包括但不限于将本软件或其衍生作品用于售卖、嵌入商业产品、作为付费服务对外提供、用于产生直接或间接商业收益等——必须事先取得版权人“筑星 Harness”的商业授权，并按授权协议支付相应费用。商业授权条款以双方签署的书面授权协议为准。
+
+三、衍生作品
+基于本软件修改、改进形成的衍生作品，同样受本许可约束：
+1. 非商业衍生作品：须保留版权声明，并以同等方式保持源码可用；
+2. 商业衍生作品：须取得版权人商业授权后方可商用。
+
+四、禁止行为
+未经商业授权，任何人不得将本软件或其衍生作品用于任何商业用途。
+
+五、免责声明
+本软件按“现状”提供，版权人不作任何明示或暗示的担保，包括但不限于适销性、特定用途适用性及非侵权性的担保。在任何情况下，版权人均不对因使用本软件而产生的任何索赔、损害或其他责任承担义务。
+
+六、商业授权联系
+商业授权相关事宜，请通过邮箱联系版权人“筑星 Harness”：2897582601@qq.com
+
+---
+/ English Version /
+---
+
+This software (the “Software”) is released under a dual-license model. Any person or entity that obtains a copy of the Software, in source or binary form, must comply with the following terms:
+
+Statement of Originality
+The author declares that the Software and its “everything-is-a-plugin” (一切皆插件) architecture, design language and implementation are original works created independently by the author, and existed prior to the first public release described in this document. The author states that the aforementioned design concepts and technical solutions are not derived from, copied from, or adapted from DeepSeek or any of its products, including but not limited to DeepSeek Harness, and the author does not acknowledge that the “everything-is-a-plugin” concept originates from such products. This statement is made solely to affirm the author’s originality and prior rights and is not intended to disparage or evaluate any third-party product.
+
+1. Free License (Non-Commercial Use)
+Any individual, educational institution, research institution, and any commercial organization, for non-commercial purposes such as internal evaluation, learning, research and non-profit activities, may freely use, copy, modify, merge and publish the Software source code for such non-commercial purposes. Non-commercial use must retain this copyright notice and this license in full and must not remove them in any form.
+
+2. Commercial License (Paid)
+Any commercial use — including but not limited to selling the Software or its derivative works, embedding it into commercial products, providing it as a paid service, or using it to generate direct or indirect commercial revenue — requires a commercial license from the copyright owner “Zhuxing Harness” prior to such use, and payment of the corresponding fee in accordance with the license agreement. The terms of the commercial license are governed by a written agreement signed by both parties.
+
+3. Derivative Works
+Derivative works based on modifications or improvements to the Software are subject to the same terms:
+(1) Non-commercial derivative works must retain the copyright notice and remain source-available under the same terms;
+(2) Commercial derivative works require a commercial license from the copyright owner before any commercial use.
+
+4. Prohibited Actions
+Without the required commercial license, no one may use the Software or its derivative works for any commercial purpose.
+
+5. Disclaimer of Warranty
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT OWNERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+6. Commercial License Contact
+For commercial licensing matters, please contact the copyright owner “Zhuxing Harness” by email: 2897582601@qq.com

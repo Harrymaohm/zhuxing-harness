@@ -1,8 +1,9 @@
 {
   "name": "@zhuxing/harness-session",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness 会话：追加式事件日志，支持 fork / resume / replay",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -19,7 +20,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@zhuxing/harness-llm": "workspace:^0.1.0"
+  },
   "devDependencies": {
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

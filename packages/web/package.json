@@ -1,8 +1,8 @@
 {
   "name": "@zhuxing/harness-web",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness Web UI：对话 / 工作 / 交付一整套流程（HTTP + SSE 后端 + React 前端）",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
@@ -12,7 +12,10 @@
       "import": "./dist/server.js"
     }
   },
-  "files": ["dist", "dist-ui"],
+  "files": [
+    "dist",
+    "dist-ui"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -23,7 +26,7 @@
     "build": "tsc -p tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
     "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ui/tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
@@ -31,18 +34,31 @@
     "@zhuxing/harness-bundle": "workspace:^0.1.0",
     "@zhuxing/harness-kernel": "workspace:^0.1.0",
     "@zhuxing/harness-llm": "workspace:^0.1.0",
+    "@zhuxing/harness-memory": "workspace:^0.1.0",
+    "@zhuxing/harness-model-router": "workspace:^0.1.0",
     "@zhuxing/harness-sandbox": "workspace:^0.1.0",
     "@zhuxing/harness-session": "workspace:^0.1.0",
-    "@zhuxing/harness-tools": "workspace:^0.1.0"
+    "@zhuxing/harness-skills": "workspace:^0.1.0",
+    "@zhuxing/harness-specs": "workspace:^0.1.0",
+    "@zhuxing/harness-tools": "workspace:^0.1.0",
+    "adm-zip": "^0.6.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.0",
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/three": "^0.185.4",
+    "@vitejs/plugin-react": "^4.3.0",
+    "mammoth": "^1.12.1",
+    "pptx-wasm": "^0.3.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
+    "three": "^0.185.1",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "xlsx": "^0.18.5"
   },
   "engines": {
     "node": ">=20"

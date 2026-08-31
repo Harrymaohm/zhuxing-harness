@@ -11,6 +11,7 @@
 - **可追溯**：模型可见即记录（追加式会话日志），支持 fork / replay / 会话管理
 - **安全可配置**：沙箱三级策略（danger-full-access 默认 / workspace-write / read-only），凭证持久化 + 输出脱敏
 - **多模型**：OpenAI 兼容端点，默认 DeepSeek（`deepseek-v4-flash` / `deepseek-v4-pro`）
+- **多子模型路由与编排**：主编排模型动态选择子模型（任务需求 + 上下文分析 + 实时性能指标评分），模型注册表热插拔、失败自动降级、统一输出格式；编排模型经 `pick_model` / `list_models` 工具委派子任务（详见 [docs/multi-model.md](docs/multi-model.md)）
 - **流式输出**：`--stream` 逐 token 渲染
 - **开发体验**：`harness dev` 监听插件变化自动热重载并重跑
 
@@ -75,6 +76,7 @@ harness run -p examples/hello-plugin.patch.yml "调用 hello 工具打个招呼"
 | `harness dev` | 开发模式：监听插件变化自动热重载并重跑 |
 | `harness login` / `harness config` | 凭证与配置持久化 |
 | `harness session ls/show/rm` | 会话管理（JSONL 持久化） |
+| `harness models list/stats` | 多子模型管理（列表 / 实时性能指标） |
 | `harness validate` | 校验插件定义 |
 | `harness create-plugin` / `install` | 插件脚手架 / 本地安装 |
 | `harness list` | 列出配置解析出的插件 |
@@ -125,10 +127,13 @@ cli —— 组合入口（base bundle 全部能力均为插件，可整体替换
 - [docs/cli.md](docs/cli.md) — CLI 命令参考
 - [docs/configuration.md](docs/configuration.md) — 配置（凭证 / patch / profile / 沙箱）
 - [docs/plugins.md](docs/plugins.md) — 插件开发指南
+- [docs/multi-model.md](docs/multi-model.md) — 多子模型路由与编排
 - [docs/security.md](docs/security.md) — 安全模型
 - [计划书.md](计划书.md) — 设计、里程碑、商用化路线图
 - [优化报告.md](优化报告.md) — 优化内容与测试结果
 
 ## 许可
 
-[MIT](LICENSE)
+双许可（源码可用 · 非商业免费 · 商业付费授权）
+
+[查看 LICENSE](LICENSE)

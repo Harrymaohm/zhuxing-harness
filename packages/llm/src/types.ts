@@ -1,7 +1,13 @@
+/** 多模态内容片段：文本或图片（OpenAI vision 兼容）。 */
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 /** 统一聊天消息类型（OpenAI 风格子集）。 */
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string
+  /** 纯文本，或多模态内容片段数组（user 消息可携带图片）。 */
+  content: string | ContentPart[]
   /** assistant 消息可选名称。 */
   name?: string
   /** assistant 消息可携带上一轮的工具调用（供模型继续编排）。 */

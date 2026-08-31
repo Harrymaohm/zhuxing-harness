@@ -18,10 +18,30 @@ export interface SessionEvent {
 export interface SessionStore {
   append(evt: SessionEvent): Promise<void>
   list(sessionId: string): Promise<SessionEvent[]>
-  createSession(): Promise<string>
-  /** fork：复制历史到新会话并返回新会话 id。 */
-  forkSession(sourceId: string): Promise<string>
+  createSession(meta?: Partial<SessionMeta>): Promise<string>
+  /** fork：复制历史到新会话并返回新会话 id；可选从指定事件截断。 */
+  forkSession(sourceId: string, forkPointEventId?: string): Promise<string>
   remove(sessionId: string): Promise<void>
+  rename?(sessionId: string, title: string): Promise<void>
+  /** 会话元数据（标题/父子关系）。可选，文件存储实现提供。 */
+  getMeta?(sessionId: string): Promise<SessionMeta | undefined>
+  setMeta?(meta: SessionMeta): Promise<void>
+  /** 把子会话事件回写进父会话。可选。 */
+  mergeInto?(parentId: string, childId: string, summary?: string): Promise<void>
+  /** 会话清单 + 元数据。可选。 */
+  listSessionsWithMeta?(): Promise<Array<{ id: string; meta?: SessionMeta }>>
+  /** 软归档会话（隐藏出主列表，可恢复）。可选。 */
+  archiveSession?(sessionId: string): Promise<void>
+  /** 恢复已归档会话。可选。 */
+  unarchiveSession?(sessionId: string): Promise<void>
+  /** 创建空间（项目）。可选。 */
+  createSpace?(title: string): Promise<SpaceMeta>
+  /** 空间清单。可选。 */
+  listSpaces?(): Promise<SpaceMeta[]>
+  /** 重命名空间。可选。 */
+  renameSpace?(spaceId: string, title: string): Promise<void>
+  /** 删除空间及其下属会话。可选。 */
+  removeSpace?(spaceId: string): Promise<void>
 }
 
 /** 会话句柄：只对单个会话操作。 */
@@ -140,3 +160,34 @@ export class DefaultSessionService implements SessionService {
 }
 
 export { FileSessionStore }
+
+/** 会话元数据：父子关系与标题（独立于 append-only 事件日志，写入 .meta.json）。 */
+export interface SessionMeta {
+  id: string
+  /** 分叉来源会话 id（子对话/主对话）。 */
+  parentId?: string
+  /** 分叉点事件 id：子对话继承该事件之前的历史。 */
+  forkPointEventId?: string
+  title?: string
+  /** 所属空间（项目）id；缺省归入默认空间。 */
+  spaceId?: string
+  /** 软归档标记：true 时不进主列表，仅在「已归档对话」中可见。 */
+  archived?: boolean
+  /** 归档时间戳（毫秒）。 */
+  archivedAt?: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** 空间（项目）容器：会话归属于某一空间，支撑多项目并行。 */
+export interface SpaceMeta {
+  id: string
+  title: string
+  /** 空间级会话数（含归档），便于展示。 */
+  sessionCount?: number
+  createdAt: number
+  updatedAt: number
+}
+
+export { buildMessagesFromEvents } from './rebuild.js'
+

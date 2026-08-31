@@ -1,8 +1,9 @@
 {
   "name": "@zhuxing/harness-sdk",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness 插件 SDK：统一类型导出、插件 DSL、便捷构造",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

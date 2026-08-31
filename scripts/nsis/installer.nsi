@@ -17,8 +17,13 @@ OutFile "zhuxing-harness-setup-${APP_VERSION}.exe"
 InstallDir "$LOCALAPPDATA\ZhuxingHarness"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
+Icon "harness.ico"
+UninstallIcon "harness.ico"
 
 !define MUI_ABORTWARNING
+; 安装/卸载向导窗口图标（与 exe 图标一致）
+!define MUI_ICON "harness.ico"
+!define MUI_UNICON "harness.ico"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -43,9 +48,11 @@ Section "安装" SEC01
   WriteRegExpandStr HKCU "Environment" "Path" $0
   SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 
-  ; 开始菜单快捷方式
+  ; 开始菜单快捷方式（Web UI 用 wscript 无窗口启动）
   CreateDirectory "$SMPROGRAMS\筑星 Harness"
-  CreateShortcut "$SMPROGRAMS\筑星 Harness\Harness 命令行.lnk" "$INSTDIR\harness.cmd" "" "$INSTDIR\harness.cmd"
+  CreateShortcut "$SMPROGRAMS\筑星 Harness\Harness 命令行.lnk" "$INSTDIR\harness.cmd" "" "$INSTDIR\harness.ico" 0
+  CreateShortcut "$SMPROGRAMS\筑星 Harness\启动 Web UI.lnk" "$WINDIR\System32\wscript.exe" '"$INSTDIR\bin\launch.vbs"' "$INSTDIR\harness.ico" 0
+  CreateShortcut "$DESKTOP\筑星 Harness Web UI.lnk" "$WINDIR\System32\wscript.exe" '"$INSTDIR\bin\launch.vbs"' "$INSTDIR\harness.ico" 0
   CreateShortcut "$SMPROGRAMS\筑星 Harness\卸载筑星 Harness.lnk" "$INSTDIR\uninstall.exe"
 
   ; 卸载器与注册表信息
@@ -59,6 +66,10 @@ Section "安装" SEC01
 SectionEnd
 
 Section "Uninstall"
+  ; 卸载前停止常驻服务（避免删除 node.exe 等文件时被占用而失败）
+  nsExec::ExecToLog '"$INSTDIR\node\node.exe" "$INSTDIR\bin\web-launcher.mjs" --stop'
+  Sleep 1500
+
   ; 从 PATH 移除安装目录
   ReadRegStr $0 HKCU "Environment" "Path"
   ${If} $0 != ""
@@ -70,6 +81,7 @@ Section "Uninstall"
 
   ; 清理快捷方式与注册表
   RMDir /r "$SMPROGRAMS\筑星 Harness"
+  Delete "$DESKTOP\筑星 Harness Web UI.lnk"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\ZhuxingHarness"
 
   ; 删除安装目录

@@ -1,8 +1,9 @@
 {
   "name": "@zhuxing/harness-tools",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness 工具：工具注册表 + 执行管道（拦截/沙箱/超时/结果规范化）",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

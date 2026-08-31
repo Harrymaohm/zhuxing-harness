@@ -85,6 +85,29 @@ describe('Agent 循环', () => {
     expect(result.steps).toBe(3)
   })
 
+  it('history 入参会拼接到 system 之后、本次输入之前', async () => {
+    const store = new MemorySessionStore()
+    const session = new SessionImpl(store, await store.createSession())
+    let received: ChatMessage[] = []
+    const provider: ChatProvider = {
+      name: 'capture',
+      async chat(messages: ChatMessage[]): Promise<ChatResult> {
+        received = [...messages]
+        return { content: '收到', toolCalls: [], finishReason: 'stop' }
+      },
+    }
+    const loop = new AgentLoop({ llm: provider, tools: new ToolRegistryImpl(), session })
+    await loop.run('第二问', [
+      { role: 'user', content: '第一问' },
+      { role: 'assistant', content: '回答一' },
+    ])
+    expect(received.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user'])
+    expect(received[0]).toEqual({ role: 'system', content: expect.any(String) })
+    expect(received[1]).toEqual({ role: 'user', content: '第一问' })
+    expect(received[2]).toEqual({ role: 'assistant', content: '回答一' })
+    expect(received[3]).toEqual({ role: 'user', content: '第二问' })
+  })
+
   it('模型抛错返回 error', async () => {
     const store = new MemorySessionStore()
     const session = new SessionImpl(store, await store.createSession())

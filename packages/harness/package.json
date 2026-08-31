@@ -1,8 +1,8 @@
 {
   "name": "@zhuxing/harness",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness —— 可随意接入插件的 Agent 运行时（官方聚合入口，全局安装后获得 harness 命令）",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "bin": {
     "harness": "./bin/harness.mjs"

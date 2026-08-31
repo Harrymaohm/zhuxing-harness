@@ -1,8 +1,9 @@
 {
   "name": "@zhuxing/harness-config",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "description": "筑星 Harness 配置：profile / bundle / patch 分层解析与合并，TS 插件模块加载",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

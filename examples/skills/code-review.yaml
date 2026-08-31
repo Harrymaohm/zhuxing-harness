@@ -1,0 +1,29 @@
+name: code-review
+version: 0.1.0
+description: 审查代码差异并给出结构化反馈（问题、建议、风险评估）
+icon: 🔍
+category: dev
+tags: [code, review]
+visibility: public
+inputs:
+  type: object
+  properties:
+    diff:
+      type: string
+      description: 代码差异（git diff 输出）
+    language:
+      type: string
+      description: 编程语言（可选，如 TypeScript / Python）
+  required: [diff]
+tools: [read_file, shell, list_dir]
+template: |
+  你是资深代码审查专家。请审查以下代码差异：
+
+  语言：{{language}}
+  差异：
+  {{diff}}
+
+  请给出结构化反馈：
+  1. 问题（按严重程度排序：阻断 / 重要 / 建议）
+  2. 修复建议（附代码示例）
+  3. 风险评估（是否可合并）

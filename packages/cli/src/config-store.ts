@@ -9,6 +9,8 @@ export interface HarnessConfig {
   model?: string
   workspace?: string
   level?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  /** 应用内更新源地址（自建 HTTP 静态服务，manifest.json + 增量包）。 */
+  updateUrl?: string
   [key: string]: unknown
 }
 

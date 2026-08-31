@@ -1,0 +1,33 @@
+name: doc-writer
+version: 0.1.0
+description: 根据要点生成结构化技术文档（README / API 文档 / 设计文档）
+icon: 📝
+category: writing
+tags: [doc, tech-writing]
+visibility: public
+inputs:
+  type: object
+  properties:
+    topic:
+      type: string
+      description: 文档主题
+    points:
+      type: string
+      description: 要点（每行一个）
+    docType:
+      type: string
+      description: 文档类型（README / API / 设计文档）
+  required: [topic, points]
+tools: [read_file, write_file]
+template: |
+  你是技术文档专家。请根据以下信息生成一份{{docType}}：
+
+  主题：{{topic}}
+  要点：
+  {{points}}
+
+  要求：
+  1. 结构清晰（标题、章节、列表）
+  2. 包含示例代码块
+  3. 语言简洁专业
+  4. 生成完成后可用 write_file 工具写入文件
