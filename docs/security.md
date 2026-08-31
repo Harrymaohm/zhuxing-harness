@@ -1,56 +1,56 @@
-# 安全模型
+# Security Model
 
-## 设计原则
+## Design principles
 
-1. **最高权限默认**：沙箱默认 `danger-full-access`，信息查询与写操作均不受阻；可通过 `--level` 或配置降级
-2. **按需降级**：对非可信环境 / 敏感目录，建议降级至 `workspace-write` 或 `read-only`
-3. **凭证保护**：持久化 + 输出脱敏 + 文件权限
-4. **可追溯**：模型可见的一切输入均落会话日志，可审计
+1. **Highest privilege by default**: the sandbox defaults to `danger-full-access`, with no restriction on informational queries or write operations; it can be downgraded via `--level` or config
+2. **Downgrade on demand**: for untrusted environments / sensitive directories, it is recommended to downgrade to `workspace-write` or `read-only`
+3. **Credential protection**: persistence + output masking + file permissions
+4. **Traceability**: everything the model can see is recorded in session logs and is auditable
 
-## 沙箱三级策略
+## Three-tier sandbox policy
 
-| 级别 | 命令执行 | 文件写入 |
+| Level | Command execution | File writes |
 | --- | --- | --- |
-| `danger-full-access`（默认） | 全放行 | 全放行 |
-| `workspace-write` | 命令放行 | 仅允许工作区内路径 |
-| `read-only` | 仅放行只读命令；只拦截明确的写意图 | 全部拒绝 |
+| `danger-full-access` (default) | all allowed | all allowed |
+| `workspace-write` | commands allowed | paths within the workspace only |
+| `read-only` | read-only commands only; only blocks explicit write intent | all denied |
 
-**read-only 只拦写意图，放行只读查询**：
+**read-only blocks write intent only, allows read-only queries**:
 
-- ✅ 放行：`git status/log/diff`、`grep/find/cat/head/tail/ls`、`sed` 查询（无 `-i`）、`awk` 查询、`npm view`、`pip list`、`curl` 查询（无 `-o`）、`echo $VAR`
-- ⛔ 拦截：`rm/mv/cp/mkdir/touch`、`sed -i`（原地写）、`curl -o`（下载写文件）、`npm install/publish/run`、`echo > file`、`vi/vim` 编辑、`git push/commit/tag`、`wget`、`chmod/chown`、`dd/mkfs/format`
+- ✅ Allowed: `git status/log/diff`, `grep/find/cat/head/tail/ls`, `sed` queries (no `-i`), `awk` queries, `npm view`, `pip list`, `curl` queries (no `-o`), `echo $VAR`
+- ⛔ Blocked: `rm/mv/cp/mkdir/touch`, `sed -i` (in-place write), `curl -o` (download writes a file), `npm install/publish/run`, `echo > file`, `vi/vim` editing, `git push/commit/tag`, `wget`, `chmod/chown`, `dd/mkfs/format`
 
-命令级精细控制：`deniedCommands`（最高优先级）/ `allowedCommands`（放行名单）。
+Fine-grained command control: `deniedCommands` (highest priority) / `allowedCommands` (allowlist).
 
-## 凭证安全
+## Credential security
 
-- **存储**：`~/.zhuxing-harness/config.json`，文件权限 600
-- **输入**：`harness login` 交互式输入，避免命令行明文
-- **输出脱敏**：CLI 全部输出（进度/结果/轨迹/错误/doctor）经 `maskSecrets()` 打码，`sk-` 令牌显示为 `sk-***xxx`
-- **环境变量**：`DEEPSEEK_API_KEY` 为备选，避免写入命令历史
+- **Storage**: `~/.zhuxing-harness/config.json`, file permission 600
+- **Input**: interactive entry via `harness login`, avoiding plaintext on the command line
+- **Output masking**: all CLI output (progress/results/traces/errors/doctor) is masked via `maskSecrets()`; `sk-` tokens are shown as `sk-***xxx`
+- **Environment variables**: `DEEPSEEK_API_KEY` as a fallback, avoiding writing to command history
 
-> 一旦 Key 泄露到对话/日志/截图，应立即在供应商控制台轮换。
+> Once a Key leaks into a conversation/log/screenshot, it should be rotated immediately from the provider console.
 
-## 工具执行安全
+## Tool execution security
 
-工具执行管道统一：前置拦截（策略插件可拒绝）→ 沙箱守卫 → 超时（默认 60s）→ 重试 → 结果规范化。
+The tool execution pipeline is unified: pre-execution interception (policy plugins can reject) → sandbox guard → timeout (default 60s) → retry → result normalization.
 
-带 `sandbox` 声明的工具（如 `shell`、`write_file`）在执行前自动按策略裁决。
+Tools declared with a `sandbox` field (such as `shell`, `write_file`) are automatically adjudicated by policy before execution.
 
-## 插件信任边界
+## Plugin trust boundary
 
-- 插件可读写工作区、执行命令、注入服务——**只加载可信来源的插件**
-- `harness validate` 校验插件定义（依赖/服务/配置 schema）
-- 热重载/卸载保证资源清理，避免悬空引用与残留
+- Plugins can read/write the workspace, execute commands, and inject services — **only load plugins from trusted sources**
+- `harness validate` validates plugin definitions (dependencies/services/config schema)
+- Hot reload/unmount guarantees resource cleanup, avoiding dangling references and residue
 
-## 会话与审计
+## Sessions and audit
 
-- 会话日志追加式落盘（`~/.zhuxing-harness/sessions/*.jsonl`）
-- `harness session show <id>` 可回放完整轨迹（系统提示、请求、工具结果均记录）
-- 日志输出统一脱敏，不落凭证
+- Session logs are written append-only (`~/.zhuxing-harness/sessions/*.jsonl`)
+- `harness session show <id>` can replay the full trace (system prompts, requests, tool results are all recorded)
+- Log output is uniformly masked and never writes credentials
 
-## 建议
+## Recommendations
 
-1. 生产环境固定沙箱级别并细化 `deniedCommands`
-2. 服务化/无人值守场景使用 `danger-full-access` 时务必隔离环境
-3. 定期轮换 API Key；对敏感项目限制插件来源
+1. Pin the sandbox level in production and refine `deniedCommands`
+2. When using `danger-full-access` in service-oriented/unattended scenarios, be sure to isolate the environment
+3. Rotate the API Key regularly; restrict plugin sources for sensitive projects

@@ -1,90 +1,92 @@
-# 筑星 Harness（Zhuxing Harness）
+# Zhuxing Harness
 
-可随意接入插件的 Agent 运行时 —— 借鉴 DeepSeek Harness「一切皆插件」设计，从零自研的 TypeScript 实现。
+An Agent runtime where everything is a plugin — a from-scratch TypeScript implementation of an "everything-is-a-plugin" architecture.
 
-模型、工具、会话、沙箱、存储、Agent 循环、CLI 输出全部是插件；内核无特权核心，任何能力都可通过配置替换或扩展。
+Models, tools, sessions, sandboxes, storage, the agent loop, and CLI output are all plugins. The kernel has no privileged core; any capability can be replaced or extended through configuration.
 
-## 特性
+> 中文版请见 [README.zh-CN.md](README.zh-CN.md) · For the Chinese version, see [README.zh-CN.md](README.zh-CN.md)
 
-- **一切皆插件**：`kernel` 只负责上下文/生命周期/依赖注入/事件，无 Agent 业务逻辑
-- **热插拔**：运行时挂载/卸载/重载，级联清理消费者、循环依赖检测、in-flight 追踪
-- **可追溯**：模型可见即记录（追加式会话日志），支持 fork / replay / 会话管理
-- **安全可配置**：沙箱三级策略（danger-full-access 默认 / workspace-write / read-only），凭证持久化 + 输出脱敏
-- **多模型**：OpenAI 兼容端点，默认 DeepSeek（`deepseek-v4-flash` / `deepseek-v4-pro`）
-- **多子模型路由与编排**：主编排模型动态选择子模型（任务需求 + 上下文分析 + 实时性能指标评分），模型注册表热插拔、失败自动降级、统一输出格式；编排模型经 `pick_model` / `list_models` 工具委派子任务（详见 [docs/multi-model.md](docs/multi-model.md)）
-- **流式输出**：`--stream` 逐 token 渲染
-- **开发体验**：`harness dev` 监听插件变化自动热重载并重跑
+## Features
 
-## 安装
+- **Everything is a plugin**: `kernel` only handles context / lifecycle / dependency injection / events — no agent business logic
+- **Hot plug/unplug**: mount / unmount / reload at runtime, cascading consumer cleanup, circular-dependency detection, in-flight tracking
+- **Traceable**: whatever the model sees is logged (append-only session log), with fork / replay / session management
+- **Configurable security**: three-tier sandbox policy (`danger-full-access` default / `workspace-write` / `read-only`), credential persistence + output redaction
+- **Multi-model**: OpenAI-compatible endpoints, defaults to DeepSeek (`deepseek-v4-flash` / `deepseek-v4-pro`)
+- **Multi-sub-model routing & orchestration**: the orchestrator model dynamically picks a sub-model (task requirements + context analysis + real-time performance scoring), a hot-pluggable model registry, automatic fallback, and unified output format; the orchestrator delegates subtasks via the `pick_model` / `list_models` tools (see [docs/multi-model.md](docs/multi-model.md))
+- **Streaming output**: `--stream` renders token-by-token
+- **Developer experience**: `harness dev` watches for plugin changes and hot-reloads and re-runs automatically
 
-> 发布到 npm 后：`npm install -g @zhuxing/harness`
+## Installation
 
-当前源码运行：
+> After publishing to npm: `npm install -g @zhuxing/harness`
+
+Run from source:
 
 ```bash
 pnpm install && pnpm build
-pnpm harness --help        # 或 node packages/cli/dist/cli.js
+pnpm harness --help        # or node packages/cli/dist/cli.js
 ```
 
-### Windows 安装包（NSIS，二次分发）
+### Windows installer (NSIS, redistribution)
 
 ```bash
 pnpm build && pnpm bundle
 pnpm --filter @zhuxing/harness-web build:ui
-node scripts/build-nsis.mjs        # 生成 dist-install/zhuxing-harness-setup-<版本>.exe
+node scripts/build-nsis.mjs        # generates dist-install/zhuxing-harness-setup-<version>.exe
 ```
 
-安装包特性：
-- 免管理员安装（`%LOCALAPPDATA%\ZhuxingHarness`），自动写入用户 PATH
-- 内置便携 Node 运行时 + Web UI + esbuild（离线可用，无需预装 Node）
-- 开始菜单快捷方式、卸载器（移除文件与 PATH）
-- 安装后直接使用：`harness run` / `harness web`
+Installer features:
+- No admin required (installs to `%LOCALAPPDATA%\ZhuxingHarness`), automatically adds user PATH
+- Bundles a portable Node runtime + Web UI + esbuild (works offline, no preinstalled Node needed)
+- Start-menu shortcut, uninstaller (removes files and PATH)
+- Ready to use after install: `harness run` / `harness web`
 
-> 构建工具（NSIS 3.10、便携 Node 22）置于 `tools/`（gitignore），首次构建前需下载到该目录。
+> Build tools (NSIS 3.10, portable Node 22) live in `tools/` (gitignored); download them there before the first build.
 
-## 快速开始
+## Quick Start
 
-### Web UI（对话 / 工作 / 交付）
+### Web UI (Chat / Works / Deliverables)
 
 ```bash
-harness web                 # 启动 Web UI，默认 http://127.0.0.1:3080
-harness web --port 8080     # 指定端口
+harness web                 # starts the Web UI, default http://127.0.0.1:3080
+harness web --port 8080     # specify a port
 ```
 
-浏览器打开后在「设置」中配置 API Key / 模型 / 工作区，即可对话并实时观察工具调用与交付结果。
+Open the browser and configure the API Key / model / workspace in «Settings», then you can chat and watch tool calls and deliverables in real time.
 
-### 命令行
+### Command line
 
 ```bash
-# 1. 配置凭证（一次性，交互式）
+# 1. Configure credentials (one-time, interactive)
 harness login
 
-# 2. 运行第一个任务
-harness run "总结当前目录的结构"
+# 2. Run your first task
+harness run "Summarize the structure of the current directory"
 
-# 3. 接入一个插件（通过 patch 配置）
-harness run -p examples/hello-plugin.patch.yml "调用 hello 工具打个招呼"
+# 3. Attach a plugin (via patch config)
+harness run -p examples/hello-plugin.patch.yml "Use the hello tool to greet"
 ```
 
-环境自检：`harness doctor [--network]`
+Environment self-check: `harness doctor [--network]`
 
-## 命令总览
+## Command Overview
 
-| 命令 | 说明 |
+| Command | Description |
 | --- | --- |
-| `harness run` | 运行 Agent 任务（进度输出 / `--json` / `--stream` / `--timing`） |
-| `harness dev` | 开发模式：监听插件变化自动热重载并重跑 |
-| `harness login` / `harness config` | 凭证与配置持久化 |
-| `harness session ls/show/rm` | 会话管理（JSONL 持久化） |
-| `harness models list/stats` | 多子模型管理（列表 / 实时性能指标） |
-| `harness validate` | 校验插件定义 |
-| `harness create-plugin` / `install` | 插件脚手架 / 本地安装 |
-| `harness list` | 列出配置解析出的插件 |
-| `harness doctor` | 环境自检 |
-| `harness completion` | shell 补全 |
-| `harness version` | 版本号 |
+| `harness run` | Run an agent task (progress output / `--json` / `--stream` / `--timing`) |
+| `harness dev` | Dev mode: watch plugin changes, hot-reload and re-run |
+| `harness login` / `harness config` | Credential & configuration persistence |
+| `harness session ls/show/rm` | Session management (JSONL persistence) |
+| `harness models list/stats` | Multi-sub-model management (list / real-time performance metrics) |
+| `harness validate` | Validate plugin definitions |
+| `harness create-plugin` / `install` | Plugin scaffolding / local install |
+| `harness list` | List the plugins resolved from configuration |
+| `harness doctor` | Environment self-check |
+| `harness completion` | Shell completion |
+| `harness version` | Version number |
 
-## 插件开发（30 秒上手）
+## Plugin Development (30-second quick start)
 
 ```ts
 import { defineTool, type Context } from '@zhuxing/harness-sdk'
@@ -96,44 +98,44 @@ export function apply(ctx: Context) {
   const unregister = ctx.inject<import('@zhuxing/harness-sdk').ToolRegistry>('tools').register(
     defineTool({
       name: 'hello',
-      description: '打招呼',
+      description: 'Say hello',
       schema: { type: 'object', properties: { name: { type: 'string' } } },
-      execute: (args) => ({ text: `你好，${String(args.name)}！` }),
+      execute: (args) => ({ text: `Hello, ${String(args.name)}!` }),
     }),
   )
-  ctx.effect(unregister) // 卸载时自动清理
+  ctx.effect(unregister) // automatically cleaned up on unload
 }
 ```
 
-完整示例见 [examples/hello-plugin](examples/hello-plugin)。生成脚手架：`harness create-plugin my-plugin`。
+See the full example in [examples/hello-plugin](examples/hello-plugin). Generate scaffolding with `harness create-plugin my-plugin`.
 
-## 架构
+## Architecture
 
 ```
-kernel（Context/Lifecycle/DI/Event/Service）
-  ├── config   （profile/bundle/patch 分层 + TS 转译缓存）
-  ├── session  （追加式事件日志 / fork / JSONL 文件存储）
-  ├── agent    （turn/step 循环、agent/* 拦截、流式透传）
-  ├── tools    （注册表 + 执行管道：拦截→沙箱→超时重试）
-  ├── sandbox  （三级权限策略）
-  ├── llm      （统一接口 + OpenAI 兼容端点 + SSE 流式）
-  └── sdk      （聚合导出 + DSL）
-cli —— 组合入口（base bundle 全部能力均为插件，可整体替换）
+kernel (Context / Lifecycle / DI / Event / Service)
+  ├── config   (profile/bundle/patch layered + TS transpile cache)
+  ├── session  (append-only event log / fork / JSONL file storage)
+  ├── agent    (turn/step loop, agent/* interceptors, streaming passthrough)
+  ├── tools    (registry + execution pipeline: intercept -> sandbox -> timeout-retry)
+  ├── sandbox  (three-tier permission policy)
+  ├── llm      (unified interface + OpenAI-compatible endpoint + SSE streaming)
+  └── sdk      (aggregated exports + DSL)
+cli —— composition entry (all base-bundle capabilities are plugins, fully replaceable)
 ```
 
-## 文档
+## Documentation
 
-- [docs/quickstart.md](docs/quickstart.md) — 快速开始（5 分钟跑通）
-- [docs/cli.md](docs/cli.md) — CLI 命令参考
-- [docs/configuration.md](docs/configuration.md) — 配置（凭证 / patch / profile / 沙箱）
-- [docs/plugins.md](docs/plugins.md) — 插件开发指南
-- [docs/multi-model.md](docs/multi-model.md) — 多子模型路由与编排
-- [docs/security.md](docs/security.md) — 安全模型
-- [计划书.md](计划书.md) — 设计、里程碑、商用化路线图
-- [优化报告.md](优化报告.md) — 优化内容与测试结果
+- [docs/quickstart.md](docs/quickstart.md) — Quick start (run it in 5 minutes) · 中文 [docs/quickstart.zh-CN.md](docs/quickstart.zh-CN.md)
+- [docs/cli.md](docs/cli.md) — CLI command reference · 中文 [docs/cli.zh-CN.md](docs/cli.zh-CN.md)
+- [docs/configuration.md](docs/configuration.md) — Configuration (credentials / patch / profile / sandbox) · 中文 [docs/configuration.zh-CN.md](docs/configuration.zh-CN.md)
+- [docs/plugins.md](docs/plugins.md) — Plugin development guide · 中文 [docs/plugins.zh-CN.md](docs/plugins.zh-CN.md)
+- [docs/multi-model.md](docs/multi-model.md) — Multi-sub-model routing & orchestration · 中文 [docs/multi-model.zh-CN.md](docs/multi-model.zh-CN.md)
+- [docs/security.md](docs/security.md) — Security model · 中文 [docs/security.zh-CN.md](docs/security.zh-CN.md)
+- [PLAN.md](PLAN.md) — Design, milestones, and commercialization roadmap · 中文 [PLAN.zh-CN.md](PLAN.zh-CN.md)
+- [REPORT.md](REPORT.md) — Optimization results and test findings · 中文 [REPORT.zh-CN.md](REPORT.zh-CN.md)
 
-## 许可
+## License
 
-双许可（源码可用 · 非商业免费 · 商业付费授权）
+Dual license (source-available · free for non-commercial use · paid commercial license)
 
-[查看 LICENSE](LICENSE)
+[View LICENSE](LICENSE) · 中文 [LICENSE](LICENSE)

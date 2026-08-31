@@ -1,10 +1,10 @@
-# 配置
+# Configuration
 
-## 凭证与用户配置
+## Credentials and user configuration
 
-配置文件：`~/.zhuxing-harness/config.json`（权限 600）。可用 `HARNESS_CONFIG` 环境变量覆盖路径。
+Config file: `~/.zhuxing-harness/config.json` (permission 600). The path can be overridden with the `HARNESS_CONFIG` environment variable.
 
-推荐用 `harness login` 交互式配置；也可手动写入：
+Interactive configuration with `harness login` is recommended; you can also write it manually:
 
 ```json
 {
@@ -16,40 +16,40 @@
 }
 ```
 
-### 环境变量
+### Environment variables
 
-| 变量 | 作用 |
+| Variable | Purpose |
 | --- | --- |
-| `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` | API Key（优先级高于配置文件） |
-| `HARNESS_CONFIG` | 配置文件路径 |
-| `HARNESS_SESSION_DIR` | 会话持久化目录 |
+| `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` | API Key (higher priority than the config file) |
+| `HARNESS_CONFIG` | Config file path |
+| `HARNESS_SESSION_DIR` | Session persistence directory |
 
 ### `.env`
 
-`run` / `dev` 自动加载工作区 `.env`（`KEY=VALUE`），**不覆盖**已存在的环境变量。
+`run` / `dev` automatically load the workspace `.env` (`KEY=VALUE`), and **do not override** already-existing environment variables.
 
-### 覆盖优先级
+### Override priority
 
-命令行参数 > 环境变量 > 配置文件 > 内置默认值
+CLI arguments > environment variables > config file > built-in defaults
 
-## 插件接入：profile / bundle / patch
+## Plugin integration: profile / bundle / patch
 
-三层组合模型（借鉴 DeepSeek Harness）：
+A three-layer composition model (inspired by DeepSeek Harness):
 
-- **bundle**：一组插件（`plugins:` 列表）
-- **profile**：引用多个 bundle + 追加 patch
-- **patch**：对插件列表的覆盖操作
+- **bundle**: a group of plugins (`plugins:` list)
+- **profile**: references multiple bundles + appends patches
+- **patch**: overlay operations on the plugin list
 
 ```yaml
-# patch 文件（最常用）
+# patch file (most common)
 plugins:
   - id: hello-plugin
     path: ./hello-plugin/src/index.ts
-    config: { key: value }   # 可选，传给插件的 ctx.config
+    config: { key: value }   # optional, passed to the plugin's ctx.config
 ```
 
 ```yaml
-# profile 文件
+# profile file
 name: my-profile
 bundles:
   - ./bundle-a.yml
@@ -62,28 +62,28 @@ patch:
     id: deprecated-plugin
 ```
 
-patch 操作：`insert`（同 id 覆盖）/ `replace` / `remove`。
+Patch operations: `insert` (overrides by the same id) / `replace` / `remove`.
 
-使用：
+Usage:
 
 ```bash
-harness run -p examples/hello-plugin.patch.yml "任务"
-harness list -p examples/hello-plugin.patch.yml        # 查看解析结果
+harness run -p examples/hello-plugin.patch.yml "task"
+harness list -p examples/hello-plugin.patch.yml        # view the resolved result
 ```
 
-> 相对路径以配置文件所在目录解析。
+> Relative paths are resolved relative to the directory of the config file.
 
-## 沙箱级别
+## Sandbox levels
 
-| 级别 | 命令 | 写入 |
+| Level | Commands | Writes |
 | --- | --- | --- |
-| `danger-full-access`（默认） | 全放行 | 全放行 |
-| `workspace-write` | 命令放行 | 仅工作区内路径 |
-| `read-only` | 仅放行只读命令 | 全部拒绝 |
+| `danger-full-access` (default) | full access | full access |
+| `workspace-write` | commands allowed | paths within the workspace only |
+| `read-only` | read-only commands only | all denied |
 
-更严格的命令级控制：`deniedCommands` / `allowedCommands` 策略在沙箱插件配置中设置。
+For stricter, command-level control: `deniedCommands` / `allowedCommands` policies are set in the sandbox plugin config.
 
-## 模型默认值
+## Model defaults
 
-- 端点：`https://api.deepseek.com/v1`（任意 OpenAI 兼容端点可通过 `--base-url` / `config.baseUrl` 接入）
-- 模型：`deepseek-v4-flash` / `deepseek-v4-pro`（DeepSeek）；也可接入 OpenAI、OpenRouter、本地 vLLM 等
+- Endpoint: `https://api.deepseek.com/v1` (any OpenAI-compatible endpoint can be attached via `--base-url` / `config.baseUrl`)
+- Models: `deepseek-v4-flash` / `deepseek-v4-pro` (DeepSeek); OpenAI, OpenRouter, local vLLM, etc. can also be attached

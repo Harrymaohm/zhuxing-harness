@@ -1,131 +1,131 @@
-# CLI 参考
+# CLI Reference
 
-退出码：`0` 成功 · `1` 运行时错误 · `2` 用法错误
+Exit codes: `0` success · `1` runtime error · `2` usage error
 
-## 全局
-
-```bash
-harness --help | -h     # 帮助
-harness --version | -v  # 版本号
-```
-
-## run —— 运行 Agent 任务
+## Global
 
 ```bash
-harness run [选项] "任务描述"
+harness --help | -h     # help
+harness --version | -v  # version
 ```
 
-| 选项 | 说明 |
+## run — Run an Agent task
+
+```bash
+harness run [options] "task description"
+```
+
+| Option | Description |
 | --- | --- |
-| `-p, --patch <file>` | patch 覆盖层，可多次 |
-| `--profile <file>` | profile 组合文件 |
-| `--api-key <key>` | API Key（默认：配置 → 环境变量） |
-| `--base-url <url>` | OpenAI 兼容端点（默认 `https://api.deepseek.com/v1`） |
-| `--model <name>` | 模型名（默认 `deepseek-v4-flash`） |
-| `-w, --workspace <dir>` | 工作区（默认：配置或当前目录） |
-| `--level <级别>` | `read-only` / `workspace-write` / `danger-full-access`（默认 `danger-full-access`） |
-| `--max-steps <n>` | 最大步数（默认 20） |
-| `--temperature <t>` | 采样温度 |
-| `--system-prompt <s>` | 自定义系统提示 |
-| `--session-dir <dir>` | 会话持久化目录（默认 `~/.zhuxing-harness/sessions`） |
-| `--stream` | 逐 token 流式输出 |
-| `--json` | 结构化 JSON 输出 |
-| `--summary` | 最终输出折叠为交付摘要（完整数据保留在会话日志） |
-| `--timing` | 打印阶段耗时 |
-| `--verbose` | 打印完整会话轨迹 |
+| `-p, --patch <file>` | patch overlay, may be specified multiple times |
+| `--profile <file>` | profile composition file |
+| `--api-key <key>` | API Key (default: config → environment variables) |
+| `--base-url <url>` | OpenAI-compatible endpoint (default `https://api.deepseek.com/v1`) |
+| `--model <name>` | model name (default `deepseek-v4-flash`) |
+| `-w, --workspace <dir>` | workspace (default: config or current directory) |
+| `--level <level>` | `read-only` / `workspace-write` / `danger-full-access` (default `danger-full-access`) |
+| `--max-steps <n>` | maximum steps (default 20) |
+| `--temperature <t>` | sampling temperature |
+| `--system-prompt <s>` | custom system prompt |
+| `--session-dir <dir>` | session persistence directory (default `~/.zhuxing-harness/sessions`) |
+| `--stream` | stream output token by token |
+| `--json` | structured JSON output |
+| `--summary` | collapse the final output into a delivery summary (full data retained in the session log) |
+| `--timing` | print per-stage timing |
+| `--verbose` | print the full session trace |
 | `--log-level <l>` | `trace`/`debug`/`info`/`warn`/`error` |
 
-示例：
+Examples:
 
 ```bash
-harness run "修复 src/index.ts 的 bug" --level workspace-write
-harness run --json --timing "总结仓库"           # 脚本消费
-harness run --stream "解释什么是 Agent harness"   # 流式
+harness run "Fix the bug in src/index.ts" --level workspace-write
+harness run --json --timing "Summarize the repository"           # for script consumption
+harness run --stream "Explain what an Agent harness is"   # streaming
 ```
 
-`--json` 输出结构：`{ ok, content, steps, finishedReason, sessionId, timing? }`
+`--json` output structure: `{ ok, content, steps, finishedReason, sessionId, timing? }`
 
-## dev —— 开发模式（热重载）
+## dev — Development mode (hot reload)
 
 ```bash
-harness dev [选项] "任务描述"
+harness dev [options] "task description"
 ```
 
-监听 patch 插件入口文件，变化时自动卸载 → 重挂 → 重跑任务。`Ctrl-C` 退出。
+Watches the patch plugin entry file; on change it automatically unmounts → remounts → reruns the task. Exit with `Ctrl-C`.
 
-## login —— 交互式配置
+## login — Interactive configuration
 
 ```bash
 harness login
 ```
 
-依次输入 API Key / Base URL / 模型 / 工作区 / 沙箱级别，写入 `~/.zhuxing-harness/config.json`。
+Enter the API Key / Base URL / model / workspace / sandbox level in sequence, written to `~/.zhuxing-harness/config.json`.
 
-## config —— 配置管理
+## config — Configuration management
 
 ```bash
-harness config list                      # 列出（apiKey 自动脱敏）
+harness config list                      # list (apiKey auto-masked)
 harness config get <key>
 harness config set <key> <value>
 harness config rm <key>
 ```
 
-常用键：`apiKey` / `baseUrl` / `model` / `workspace` / `level`。
+Common keys: `apiKey` / `baseUrl` / `model` / `workspace` / `level`.
 
-## session —— 会话管理
-
-```bash
-harness session ls                       # 列出会话（前缀 id + 事件数 + 时间）
-harness session show <id或前缀>          # 查看会话轨迹
-harness session rm <id或前缀>            # 删除会话
-```
-
-会话持久化于 `~/.zhuxing-harness/sessions/*.jsonl`（`HARNESS_SESSION_DIR` 可覆盖）。
-
-## validate —— 校验插件
+## session — Session management
 
 ```bash
-harness validate <插件路径>              # 支持 .ts / .js
+harness session ls                       # list sessions (prefix id + event count + time)
+harness session show <id or prefix>          # view a session trace
+harness session rm <id or prefix>            # delete a session
 ```
 
-输出插件元信息与开发期建议。
+Sessions are persisted to `~/.zhuxing-harness/sessions/*.jsonl` (overridable with `HARNESS_SESSION_DIR`).
 
-## create-plugin —— 脚手架
+## validate — Validate a plugin
 
 ```bash
-harness create-plugin <名称>
+harness validate <plugin path>              # supports .ts / .js
 ```
 
-生成含工具注册 / 事件订阅 / 生命周期清理三种能力示例的插件模板。
+Outputs plugin metadata and development-time suggestions.
 
-## install —— 安装本地插件
+## create-plugin — Scaffolding
 
 ```bash
-harness install <插件源目录> [--as <名称>]
+harness create-plugin <name>
 ```
 
-复制到 `plugins/` 并输出接入配置片段。`plugins/` 为本地产物（gitignore）。
+Generates a plugin template demonstrating three capabilities: tool registration / event subscription / lifecycle cleanup.
 
-## list —— 解析插件配置
+## install — Install a local plugin
+
+```bash
+harness install <plugin source dir> [--as <name>]
+```
+
+Copies into `plugins/` and outputs an integration config snippet. `plugins/` is a local artifact (gitignored).
+
+## list — Resolve plugin config
 
 ```bash
 harness list [--patch <file>] [--profile <file>]
 ```
 
-## doctor —— 环境自检
+## doctor — Environment self-check
 
 ```bash
 harness doctor [--network]
 ```
 
-检查：Node 版本、API Key（脱敏）、会话目录可写、默认沙箱级别、模型默认值；`--network` 额外验证端点连通性。
+Checks: Node version, API Key (masked), session directory writable, default sandbox level, model defaults; `--network` additionally verifies endpoint connectivity.
 
-## completion —— shell 补全
+## completion — Shell completion
 
 ```bash
 harness completion bash | zsh
 ```
 
-## 配置覆盖优先级（run/dev）
+## Config override priority (run/dev)
 
-命令行参数 > 环境变量（`DEEPSEEK_API_KEY` / `OPENAI_API_KEY`）> 配置文件 > 默认值
+CLI arguments > environment variables (`DEEPSEEK_API_KEY` / `OPENAI_API_KEY`) > config file > defaults
