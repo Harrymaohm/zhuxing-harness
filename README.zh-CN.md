@@ -1,31 +1,190 @@
 # 筑星 Harness（Zhuxing Harness）
 
-可随意接入插件的 Agent 运行时 —— 借鉴 DeepSeek Harness「一切皆插件」设计，从零自研的 TypeScript 实现。
+> **一切皆插件 · 权限受控 · 知识自增长 · 技能可复用**
+> 一个能从源码自研、随使用不断沉淀知识与技能的国产开源 Agent 运行时。
 
-模型、工具、会话、沙箱、存储、Agent 循环、CLI 输出全部是插件；内核无特权核心，任何能力都可通过配置替换或扩展。
+[![Version](https://img.shields.io/badge/version-0.3.8-blue.svg)](./CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-Source--Available%20%2F%20Commercial-9c27b0.svg)](#许可)
+[![Node](https://img.shields.io/badge/node-%E2%89%A5%2020-0078d4.svg)](#安装)
+[![Status](https://img.shields.io/badge/status-Active%20Development-brightgreen.svg)](#roadmap-向自进化内核演进)
 
-## 特性
+---
 
-- **一切皆插件**：`kernel` 只负责上下文/生命周期/依赖注入/事件，无 Agent 业务逻辑
-- **热插拔**：运行时挂载/卸载/重载，级联清理消费者、循环依赖检测、in-flight 追踪
-- **可追溯**：模型可见即记录（追加式会话日志），支持 fork / replay / 会话管理
-- **安全可配置**：沙箱三级策略（danger-full-access 默认 / workspace-write / read-only），凭证持久化 + 输出脱敏
-- **多模型**：OpenAI 兼容端点，默认 DeepSeek（`deepseek-v4-flash` / `deepseek-v4-pro`）
-- **多子模型路由与编排**：主编排模型动态选择子模型（任务需求 + 上下文分析 + 实时性能指标评分），模型注册表热插拔、失败自动降级、统一输出格式；编排模型经 `pick_model` / `list_models` 工具委派子任务（详见 [docs/multi-model.md](docs/multi-model.md)）
-- **流式输出**：`--stream` 逐 token 渲染
-- **开发体验**：`harness dev` 监听插件变化自动热重载并重跑
+## 目录
 
-## 安装
+- [一句话理解](#一句话理解)
+- [它解决了什么问题](#它解决了什么问题)
+- [核心能力](#核心能力)
+  - [1. 一切皆插件：内核不做业务，能力全部可替换](#1-一切皆插件内核不做业务能力全部可替换)
+  - [2. 模型无关：用户掌握自己的模型选择权](#2-模型无关用户掌握自己的模型选择权)
+  - [3. 三层权限沙箱：让 Agent 敢做事、但不越界](#3-三层权限沙箱让-agent-敢做事但不越界)
+  - [4. 本机操作与文件交付：从「回答问题」到「交付产物」](#4-本机操作与文件交付从回答问题到交付产物)
+  - [5. 自增长知识库：从「问答」到「可溯源的知识体系」](#5-自增长知识库从问答到可溯源的知识体系)
+  - [6. 技能沉淀与记忆：越用越强的长期经验](#6-技能沉淀与记忆越用越强的长期经验)
+  - [7. 多子模型路由与编排](#7-多子模型路由与编排)
+- [架构概览](#架构概览)
+- [快速开始](#快速开始)
+- [一个完整的端到端示例](#一个完整的端到端示例)
+- [与同类项目的差异](#与同类项目的差异)
+- [应用场景（多行业）](#应用场景多行业)
+- [命令总览](#命令总览)
+- [文档](#文档)
+- [许可](#许可)
 
-> 发布到 npm 后：`npm install -g @zhuxing/harness`
+---
 
-当前源码运行：
+## 一句话理解
 
-```bash
-pnpm install
-pnpm build
-pnpm harness --help        # 或 node packages/cli/dist/cli.js
+**筑星 Harness 不是「又一个 Claude Code 的中文版」，也不是一套 prompt 模板。**
+
+它是一个**以插件为唯一原语的 Agent 运行时软件**：
+
+- **内核无特权**：`kernel` 只负责上下文、生命周期、依赖注入与事件，不含任何 Agent 业务逻辑；
+- **模型可插拔**：用户自带 Key 与接口地址，不绑定任何一家厂商；
+- **能力全部可替换**：模型、工具、会话、沙箱、记忆、知识、技能、Agent 循环、CLI 输出——全都是插件，任何一层都能通过 `profile` / `patch` 配置替换或扩展；
+- **会沉淀**：把每一份文档、每一条经验落成可检索、可溯源的知识；把跑通的流程固化成可复用的技能；
+- **并沿着这条路**，持续向「随用户共同成长、自主演化内核」的方向演进。
+
+> 如果说传统 Agent 框架是「给 AI 一套工具箱」，那么筑星 Harness 的目标是：**让 AI 在使用中自己把工具箱越做越大、越用越顺手。**
+
+---
+
+## 它解决了什么问题
+
+| 行业痛点 | 筑星的回答 |
+|----------|-----------|
+| 主流 Agent 深度绑定海外模型与账号，国内企业难以落地 | 模型完全可插拔，用户自填 Key / BaseURL，兼容任意 OpenAI 协议端点（百炼 / 千问 / DeepSeek 等） |
+| Agent 框架把业务逻辑写死在内核，难以定制 | 内核无特权，能力=插件，通过 `profile` / `patch` 分层配置即可替换或扩展任意一层 |
+| Agent 只会「说」，不会「做」——无法真正操作本机、交付文件 | 具备本地文件系统读写、脚本执行、镜像/视频/语音等产物生成能力 |
+| 知识库只是「文档问答」，用完即弃 | 自增长知识库 + 语义检索 + 溯源标注，知识在使用中持续积累与结构化 |
+| Agent 每次都从零推理，越用越累 | 工作流沉淀为 Skill、经验落成记忆，下次同类任务直接复用 |
+| 权限失控、不可审计，企业不敢用 | 只读 / 工作区写 / 满权限三层隔离，所有写操作与外部调用可留痕 |
+
+---
+
+## 核心能力
+
+### 1. 一切皆插件：内核不做业务，能力全部可替换
+
+筑星最根本的设计原则：**插件是唯一原语，内核是零特权的。**
+
+- `kernel` 只提供 `Context`、生命周期、依赖注入（`provide` / `inject`）、事件总线（`emit` / `on`）与可逆副作用（`effect`）；
+- 模型、工具、会话、沙箱、记忆、知识、技能、Agent 循环、CLI 输出均以插件形式挂载；
+- 插件之间通过 `provide` / `inject` 互相发现，卸载时经 `effect` 级联清理消费者、检测循环依赖、追踪 in-flight 任务；
+- 因此**任何能力都可以通过配置替换或扩展**，无需改动内核。
+
+### 2. 模型无关：用户掌握自己的模型选择权
+
+筑星的核心原则：**模型是插件，不是地基。**
+
+- 用户自行填写 **API Key** 与 **API Base URL**，不强制任何厂商；
+- 基于统一的 OpenAI 兼容协议实现 `OpenAICompatibleProvider`，已内置对百炼 / 千问、DeepSeek 等端点的支持；
+- `Provider` 抽象层清晰，接入新厂商只需实现一个 `ChatProvider`；
+- 上层 Agent 循环、技能、知识库、权限系统完全不感知具体模型。
+
+> 用户可以在不通 OpenAI、不通 Anthropic 的纯内网环境下，用国产模型把整套 Agent 跑起来。这是「模型主权」在代码层面的真实落地。
+
+### 3. 三层权限沙箱：让 Agent 敢做事、但不越界
+
+| 层级 | 能力 | 典型操作 |
+|------|------|---------|
+| **只读层（read-only）** | 仅观察，零副作用 | 读文件、列目录、检索知识库 |
+| **工作区写（workspace-write）** | 受限执行，仅允许工作区内写入 | 生成文件、跑脚本、写产物 |
+| **满权限（danger-full-access）** | 完整本机控制 | 任意命令、网外访问（需明确授权） |
+
+设计要点：
+
+- 每一条命令 / 每一次写入都经 `Sandbox.checkCommand` / `checkWrite` 裁决，内置写意图黑名单（`rm` / `mv` / `git push` / 重定向等）；
+- 工具通过 `sandbox: { commandArg, writeArg }` 声明哪个参数需要被守卫；
+- Agent 不能自行提升权限，更不能修改权限层本身；
+- 所有写操作、外部调用均有审计日志，可追溯。
+
+### 4. 本机操作与文件交付：从「回答问题」到「交付产物」
+
+筑星不是「在对话框里给你一段文字」，而是**走完一个真实工作流并交付文件**：
+
+- 读取 / 检索本机文件与项目状态（`read_file` / `list_dir`）；
+- 调用生成脚本、执行构建（`shell`，经沙箱裁决）；
+- 生成 **图片 / 视频 / 语音（TTS）/ 代码 / 脚本** 等真实产物（`generate_image` / `generate_video` / `text_to_speech`）；
+- 将产物写入指定目录，并回报完整路径与复跑命令。
+
+### 5. 自增长知识库：从「问答」到「可溯源的知识体系」
+
+- 上传文档后自动**分块**（段落感知，默认 800 字、重叠 120），支持纯文本 / docx / pptx / xlsx；
+- 配置 Embedding（OpenAI 兼容 `/embeddings`）后启用**语义检索（RAG）**，未配置时自动降级为关键词匹配（CJK 二元组 + 拉丁词元）；
+- 支持**多空间 / 目录树 / 作用域**管理与重索引；
+- 命中内容注入每次对话的 system prompt（默认 8KB 上限，防止上下文投毒）；
+- 问答**带溯源**：命中内容标注来源，可回溯到原文词条；
+- 面向**政务、工程、医疗、法律、制造**等行业，这种「规范 + 条款 + 溯源」的结构化能力是真正落地的前提。
+
+### 6. 技能沉淀与记忆：越用越强的长期经验
+
+**技能（Skill）**——把「怎么做」外化为可读、可管、可版本化的文件：
+
+- 技能 = 提示词模板（`{{param}}` 占位）+ 输入参数 JSON Schema + 可选工具子集 + 记忆绑定；
+- 以 YAML 文件落盘，可解释、可审计、可导出、可导入；
+- 支持 RAG 式检索调用，也支持经验式复用；技能之间可组合、可并行；
+- 配套 CLI：`harness skill list/run`，以及 `use_skill` / `list_skills` 工具。
+
+**记忆（Memory）**——把「跨会话的经验」沉淀下来：
+
+- 支持 `user` / `project` / `auto` / `session` 四种作用域；
+- 每次 Agent 运行前自动注入跨会话记忆与本次会话私有记忆（默认 4KB 截断）。
+
+> 这相当于给 Agent 装上了**长期记忆 + 肌肉记忆**：不靠无限拉长上下文，而是把经验外化到磁盘，需要时再加载。
+
+### 7. 多子模型路由与编排
+
+当任务规模变大，单一模型往往不够。筑星内置多子模型治理：
+
+- **模型注册表**：热插拔注册 / 注销子模型；
+- **性能监控**：滑动窗口记录每个模型的中延迟、成功率等指标；
+- **模型选择器**：基于意图关键词命中 + 上下文长度 + 实时性能加权评分，动态挑选最合适的子模型；
+- **路由与降级**：首选失败自动降级到备用模型，统一输出格式；
+- **编排器**：主编排模型经 `pick_model` / `list_models` 工具委派子任务给子模型，统一模型间通信协议。
+
+---
+
+## 架构概览
+
 ```
+┌────────────────────────────────────────────────────────────┐
+│                     筑星 Harness 运行时                       │
+├────────────────────────────────────────────────────────────┤
+│  CLI / Web UI            （命令入口 / 对话、工作、交付）        │
+│         │                                                   │
+│         ▼                                                   │
+│  Agent 主循环          turn/step 编排 + 上下文裁剪 + 事件      │
+│         │                                                   │
+│  增强链      memory → 会话上下文 → 知识库RAG → skill          │
+│         │                                                   │
+│  工具执行管道  before-exec → 沙箱裁决 → 超时重试 → after-exec  │
+│         │                                                   │
+│  模型层               OpenAI 兼容 Provider（可插拔、可路由）    │
+│         │                                                   │
+│  本机环境                文件系统 · 工作区 · 脚本              │
+└────────────────────────────────────────────────────────────┘
+```
+
+关键设计原则：
+
+1. **内核无特权**：Context / 生命周期 / DI / 事件，不含业务逻辑；
+2. **插件即能力**：模型、工具、会话、沙箱、记忆、知识、技能、循环全为插件，可替换；
+3. **模型是可替换的适配器**，不是系统地基；
+4. **权限是横切关注点**，贯穿每一次工具调用；
+5. **知识 / 技能 / 记忆是经验的外化**，支持版本化、可导出、可分享。
+
+---
+
+## 快速开始
+
+> 支持 npm / 源码两种方式运行。
+
+### 安装
+
+发布到 npm 后：`npm install -g @zhuxing/harness`
+
+从源码运行：依次执行 `pnpm install`、`pnpm build`，随后使用 `harness` 命令（或 `node packages/cli/dist/cli.js`）。
 
 ### Windows 安装包（NSIS，二次分发）
 
@@ -36,24 +195,7 @@ pnpm --filter @zhuxing/harness-web build:ui
 node scripts/build-nsis.mjs        # 生成 dist-install/zhuxing-harness-setup-<版本>.exe
 ```
 
-安装包特性：
-- 免管理员安装（`%LOCALAPPDATA%\ZhuxingHarness`），自动写入用户 PATH
-- 内置便携 Node 运行时 + Web UI + esbuild（离线可用，无需预装 Node）
-- 开始菜单快捷方式、卸载器（移除文件与 PATH）
-- 安装后直接使用：`harness run` / `harness web`
-
-> 构建工具（NSIS 3.10、便携 Node 22）置于 `tools/`（gitignore），首次构建前需下载到该目录。
-
-## 快速开始
-
-### Web UI（对话 / 工作 / 交付）
-
-```bash
-harness web                 # 启动 Web UI，默认 http://127.0.0.1:3080
-harness web --port 8080     # 指定端口
-```
-
-浏览器打开后在「设置」中配置 API Key / 模型 / 工作区，即可对话并实时观察工具调用与交付结果。
+安装包特性：免管理员安装（`%LOCALAPPDATA%\ZhuxingHarness`）、内置便携 Node 运行时、开始菜单快捷方式与卸载器，安装后直接使用 `harness run` / `harness web`。
 
 ### 命令行
 
@@ -68,7 +210,72 @@ harness run "总结当前目录的结构"
 harness run -p examples/hello-plugin.patch.yml "调用 hello 工具打个招呼"
 ```
 
-环境自检：`harness doctor [--network]`
+Web UI：`harness web`（默认 http://127.0.0.1:3080）。环境自检：`harness doctor [--network]`。
+
+> ⚠️ 首次使用建议在**沙箱层**运行，熟悉后再按需开放权限。
+
+---
+
+## 一个完整的端到端示例
+
+下面这条链路展示了筑星 Harness 的「**学 → 做 → 记 → 长**」闭环：
+
+**① 下达任务**
+> 「把项目 0.3.8 的用户手册生成出来，并核对版本一致性。」
+
+**② 自主执行**
+- 读取项目文件与历史会话；
+- 定位生成脚本 `scripts/gen-user-manual.cjs`；
+- 经沙箱裁决执行脚本，生成 `.docx` 与 `.pdf`；
+- 自动校验版本号、标题、页数、路径一致性。
+
+**③ 交付产物**
+```
+dist/筑星Harness-用户手册-0.3.8.docx
+dist/筑星Harness-用户手册-0.3.8.pdf
+```
+
+**④ 沉淀知识**
+- 将本次规范、流程、校验点写入知识库，带溯源；
+- 后续问答可回溯到本次产物与相关条款。
+
+**⑤ 沉淀技能**
+- 将「版本发布 → 手册生成 → 一致性校验」流程固化为 Skill；
+- 下次发版时**直接复用，无需重新推理**。
+
+> 这就是「**随用户成长**」的最小单元：用一次，学一次，沉淀一次，下一次更强。
+
+---
+
+## 与同类项目的差异
+
+| 维度 | 传统 Agent 框架 | Claude Code 类工具 | **筑星 Harness** |
+|------|------------------|--------------------|-------------------|
+| 内核职责 | 常内置业务逻辑 | 绑定 Anthropic 生态 | **内核无特权，能力全为插件** |
+| 模型绑定 | 常绑定单一厂商 | 绑定单一生态 | **完全可插拔，兼容 OpenAI 协议** |
+| 国内生态适配 | 弱 | 弱 | **百炼 / 千问 / DeepSeek 可接入，内网可跑** |
+| 本机文件交付 | 多为文本建议 | 有限 | **脚本执行 + 产物生成 + 一致性校验** |
+| 技能来源 | 人工编写 | 人工编写 | **跑通即沉淀、自主复用** |
+| 知识系统 | 一般仅 RAG | 会话上下文 | **RAG + 溯源 + 多空间管理** |
+| 权限体系 | 粗粒度 | 中粒度 | **只读 / 工作区写 / 满权限三层隔离** |
+| 演进方向 | 功能迭代 | 提示词优化 | **向自进化内核演进** |
+
+---
+
+## 应用场景（多行业）
+
+「筑星计划」的本质，是 **AI 能力与多行业的深度结合**。典型方向包括：
+
+- **政务 / 工程**：规范检索、条款溯源、文档生成、合规性校验；
+- **法律**：卷宗结构化、案例库、文书起草与引用校验；
+- **医疗**：指南知识库、诊疗路径沉淀、报告生成；
+- **制造 / 工业**：工艺知识沉淀、设备操作文档、质检流程；
+- **企业办公**：本地文档批处理、报表生成、跨文档自动化；
+- **科研 / 教育**：文献知识库、综述写作、实验流程沉淀。
+
+> 核心共性：**强规范、强交付、强合规、强知识沉淀**——正是这些场景，需要「可审计、可追溯、可成长」的 Agent 运行时。
+
+---
 
 ## 命令总览
 
@@ -77,8 +284,10 @@ harness run -p examples/hello-plugin.patch.yml "调用 hello 工具打个招呼"
 | `harness run` | 运行 Agent 任务（进度输出 / `--json` / `--stream` / `--timing`） |
 | `harness dev` | 开发模式：监听插件变化自动热重载并重跑 |
 | `harness login` / `harness config` | 凭证与配置持久化 |
-| `harness session ls/show/rm` | 会话管理（JSONL 持久化） |
+| `harness session ls/show/rm` | 会话管理（JSONL 持久化，可 fork / replay） |
 | `harness models list/stats` | 多子模型管理（列表 / 实时性能指标） |
+| `harness memory list/get` | 跨会话记忆管理 |
+| `harness skill list/run` | 技能管理 / 调用 |
 | `harness validate` | 校验插件定义 |
 | `harness create-plugin` / `install` | 插件脚手架 / 本地安装 |
 | `harness list` | 列出配置解析出的插件 |
@@ -86,42 +295,7 @@ harness run -p examples/hello-plugin.patch.yml "调用 hello 工具打个招呼"
 | `harness completion` | shell 补全 |
 | `harness version` | 版本号 |
 
-## 插件开发（30 秒上手）
-
-```ts
-import { defineTool, type Context } from '@zhuxing/harness-sdk'
-
-export const name = 'my-plugin'
-export const inject = ['tools']
-
-export function apply(ctx: Context) {
-  const unregister = ctx.inject<import('@zhuxing/harness-sdk').ToolRegistry>('tools').register(
-    defineTool({
-      name: 'hello',
-      description: '打招呼',
-      schema: { type: 'object', properties: { name: { type: 'string' } } },
-      execute: (args) => ({ text: `你好，${String(args.name)}！` }),
-    }),
-  )
-  ctx.effect(unregister) // 卸载时自动清理
-}
-```
-
-完整示例见 [examples/hello-plugin](examples/hello-plugin)。生成脚手架：`harness create-plugin my-plugin`。
-
-## 架构
-
-```
-kernel（Context/Lifecycle/DI/Event/Service）
-  ├── config   （profile/bundle/patch 分层 + TS 转译缓存）
-  ├── session  （追加式事件日志 / fork / JSONL 文件存储）
-  ├── agent    （turn/step 循环、agent/* 拦截、流式透传）
-  ├── tools    （注册表 + 执行管道：拦截→沙箱→超时重试）
-  ├── sandbox  （三级权限策略）
-  ├── llm      （统一接口 + OpenAI 兼容端点 + SSE 流式）
-  └── sdk      （聚合导出 + DSL）
-cli —— 组合入口（base bundle 全部能力均为插件，可整体替换）
-```
+---
 
 ## 文档
 
@@ -134,8 +308,16 @@ cli —— 组合入口（base bundle 全部能力均为插件，可整体替换
 - [计划书.md](计划书.md) — 设计、里程碑、商用化路线图
 - [优化报告.md](优化报告.md) — 优化内容与测试结果
 
+---
+
 ## 许可
 
 双许可（源码可用 · 非商业免费 · 商业付费授权）
 
 [查看 LICENSE](LICENSE)
+
+如需商业授权、私有部署或定制开发，请联系我们（见 LICENSE）。
+
+---
+
+*「它不只是跑任务——它是在学习，如何更好地跑任务。」*
