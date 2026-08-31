@@ -21,7 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@zhuxing/harness-kernel": "workspace:^0.1.0"
+    "@zhuxing/harness-kernel": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

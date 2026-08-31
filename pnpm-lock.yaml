@@ -15,43 +15,43 @@ importers:
         specifier: ^22.10.0
         version: 22.20.1
       '@zhuxing/harness-agent':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/agent
       '@zhuxing/harness-cli':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/cli
       '@zhuxing/harness-config':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/config
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/kernel
       '@zhuxing/harness-knowledge':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/knowledge
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/llm
       '@zhuxing/harness-memory':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/memory
       '@zhuxing/harness-model-router':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/model-router
       '@zhuxing/harness-sandbox':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/sandbox
       '@zhuxing/harness-session':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/session
       '@zhuxing/harness-skills':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/skills
       '@zhuxing/harness-specs':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/specs
       '@zhuxing/harness-tools':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:packages/tools
       adm-zip:
         specifier: ^0.6.0
@@ -69,7 +69,7 @@ importers:
   examples/hello-plugin:
     dependencies:
       '@zhuxing/harness-sdk':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../../packages/sdk
     devDependencies:
       typescript:
@@ -82,19 +82,19 @@ importers:
   packages/agent:
     dependencies:
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../kernel
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../llm
       '@zhuxing/harness-sandbox':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../sandbox
       '@zhuxing/harness-session':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../session
       '@zhuxing/harness-tools':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../tools
     devDependencies:
       typescript:
@@ -107,34 +107,34 @@ importers:
   packages/bundle:
     dependencies:
       '@zhuxing/harness-agent':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../agent
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../kernel
       '@zhuxing/harness-knowledge':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../knowledge
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../llm
       '@zhuxing/harness-memory':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../memory
       '@zhuxing/harness-model-router':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../model-router
       '@zhuxing/harness-sandbox':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../sandbox
       '@zhuxing/harness-session':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../session
       '@zhuxing/harness-skills':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../skills
       '@zhuxing/harness-tools':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../tools
       ws:
         specifier: ^8.18.0
@@ -153,40 +153,40 @@ importers:
   packages/cli:
     dependencies:
       '@zhuxing/harness-agent':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../agent
       '@zhuxing/harness-bundle':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../bundle
       '@zhuxing/harness-config':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../config
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../kernel
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../llm
       '@zhuxing/harness-memory':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../memory
       '@zhuxing/harness-model-router':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../model-router
       '@zhuxing/harness-sandbox':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../sandbox
       '@zhuxing/harness-session':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../session
       '@zhuxing/harness-skills':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../skills
       '@zhuxing/harness-tools':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../tools
       '@zhuxing/harness-web':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../web
       adm-zip:
         specifier: ^0.6.0
@@ -211,7 +211,7 @@ importers:
   packages/config:
     dependencies:
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../kernel
       esbuild:
         specifier: ^0.28.0
@@ -230,7 +230,7 @@ importers:
   packages/harness:
     dependencies:
       '@zhuxing/harness-cli':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../cli
 
   packages/kernel:
@@ -282,7 +282,7 @@ importers:
   packages/model-router:
     dependencies:
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../llm
     devDependencies:
       typescript:
@@ -295,7 +295,7 @@ importers:
   packages/sandbox:
     dependencies:
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../kernel
     devDependencies:
       typescript:
@@ -308,22 +308,22 @@ importers:
   packages/sdk:
     dependencies:
       '@zhuxing/harness-agent':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../agent
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../kernel
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../llm
       '@zhuxing/harness-sandbox':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../sandbox
       '@zhuxing/harness-session':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../session
       '@zhuxing/harness-tools':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../tools
     devDependencies:
       typescript:
@@ -336,7 +336,7 @@ importers:
   packages/session:
     dependencies:
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../llm
     devDependencies:
       typescript:
@@ -381,13 +381,13 @@ importers:
   packages/tools:
     dependencies:
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../kernel
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../llm
       '@zhuxing/harness-sandbox':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../sandbox
     devDependencies:
       typescript:
@@ -400,37 +400,37 @@ importers:
   packages/web:
     dependencies:
       '@zhuxing/harness-agent':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../agent
       '@zhuxing/harness-bundle':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../bundle
       '@zhuxing/harness-kernel':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../kernel
       '@zhuxing/harness-llm':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../llm
       '@zhuxing/harness-memory':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../memory
       '@zhuxing/harness-model-router':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../model-router
       '@zhuxing/harness-sandbox':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../sandbox
       '@zhuxing/harness-session':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../session
       '@zhuxing/harness-skills':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../skills
       '@zhuxing/harness-specs':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../specs
       '@zhuxing/harness-tools':
-        specifier: workspace:^0.1.0
+        specifier: workspace:^
         version: link:../tools
       adm-zip:
         specifier: ^0.6.0

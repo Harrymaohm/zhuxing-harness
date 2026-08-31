@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@zhuxing/harness-sdk": "workspace:^0.1.0"
+    "@zhuxing/harness-sdk": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

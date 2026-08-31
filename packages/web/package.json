@@ -30,17 +30,17 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@zhuxing/harness-agent": "workspace:^0.1.0",
-    "@zhuxing/harness-bundle": "workspace:^0.1.0",
-    "@zhuxing/harness-kernel": "workspace:^0.1.0",
-    "@zhuxing/harness-llm": "workspace:^0.1.0",
-    "@zhuxing/harness-memory": "workspace:^0.1.0",
-    "@zhuxing/harness-model-router": "workspace:^0.1.0",
-    "@zhuxing/harness-sandbox": "workspace:^0.1.0",
-    "@zhuxing/harness-session": "workspace:^0.1.0",
-    "@zhuxing/harness-skills": "workspace:^0.1.0",
-    "@zhuxing/harness-specs": "workspace:^0.1.0",
-    "@zhuxing/harness-tools": "workspace:^0.1.0",
+    "@zhuxing/harness-agent": "workspace:^",
+    "@zhuxing/harness-bundle": "workspace:^",
+    "@zhuxing/harness-kernel": "workspace:^",
+    "@zhuxing/harness-llm": "workspace:^",
+    "@zhuxing/harness-memory": "workspace:^",
+    "@zhuxing/harness-model-router": "workspace:^",
+    "@zhuxing/harness-sandbox": "workspace:^",
+    "@zhuxing/harness-session": "workspace:^",
+    "@zhuxing/harness-skills": "workspace:^",
+    "@zhuxing/harness-specs": "workspace:^",
+    "@zhuxing/harness-tools": "workspace:^",
     "adm-zip": "^0.6.0"
   },
   "devDependencies": {

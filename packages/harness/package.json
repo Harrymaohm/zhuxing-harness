@@ -17,7 +17,7 @@
     "build": "node ../../scripts/bundle-cli.mjs"
   },
   "dependencies": {
-    "@zhuxing/harness-cli": "workspace:^0.1.0"
+    "@zhuxing/harness-cli": "workspace:^"
   },
   "engines": {
     "node": ">=20"

@@ -21,12 +21,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@zhuxing/harness-agent": "workspace:^0.1.0",
-    "@zhuxing/harness-kernel": "workspace:^0.1.0",
-    "@zhuxing/harness-llm": "workspace:^0.1.0",
-    "@zhuxing/harness-sandbox": "workspace:^0.1.0",
-    "@zhuxing/harness-session": "workspace:^0.1.0",
-    "@zhuxing/harness-tools": "workspace:^0.1.0"
+    "@zhuxing/harness-agent": "workspace:^",
+    "@zhuxing/harness-kernel": "workspace:^",
+    "@zhuxing/harness-llm": "workspace:^",
+    "@zhuxing/harness-sandbox": "workspace:^",
+    "@zhuxing/harness-session": "workspace:^",
+    "@zhuxing/harness-tools": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
