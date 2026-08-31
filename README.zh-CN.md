@@ -22,14 +22,16 @@
 当前源码运行：
 
 ```bash
-pnpm install && pnpm build
+pnpm install
+pnpm build
 pnpm harness --help        # 或 node packages/cli/dist/cli.js
 ```
 
 ### Windows 安装包（NSIS，二次分发）
 
 ```bash
-pnpm build && pnpm bundle
+pnpm build
+pnpm bundle
 pnpm --filter @zhuxing/harness-web build:ui
 node scripts/build-nsis.mjs        # 生成 dist-install/zhuxing-harness-setup-<版本>.exe
 ```

@@ -16,3 +16,10 @@ scripts/nsis/.installer.bom.nsi
 .trae/
 _pptx_test/
 *.ico.bak
+
+# Web UI 编译产物（可由 build:ui 重新生成）
+packages/web/dist-ui/
+
+# 用户手册（二进制交付物，非源码）
+*用户手册*.docx
+*用户手册*.pdf
