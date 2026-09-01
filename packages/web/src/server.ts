@@ -1017,6 +1017,36 @@ async function handleRequest(
       json(res, 200, { ok: true, docs: r.docs })
       return
     }
+    // 更新单个文档元数据字段（标题/来源/标签/工作区/空间/目录等，运行时立即生效）
+    if (req.method === 'PATCH' && path.startsWith('/api/knowledge/docs/')) {
+      const m = path.match(/^\/api\/knowledge\/docs\/([^/]+)$/)
+      const body = (await readJsonBody(req)) as {
+        title?: string
+        source?: string
+        workspace?: string
+        scope?: 'global' | 'workspace'
+        specId?: string
+        tags?: string[]
+        spaceId?: string
+        folderId?: string | null
+      }
+      const kb = resolveKbStore(runtime, body.scope ?? undefined)
+      if (!m || !kb) {
+        json(res, 400, { error: '知识库未启用' })
+        return
+      }
+      const id = decodeURIComponent(m[1])
+      try {
+        let doc = await kb.store.updateDocument(id, body)
+        if (!doc && kb.service.workspace && kb.store !== kb.service.workspace.store) {
+          doc = await kb.service.workspace.store.updateDocument(id, body)
+        }
+        json(res, doc ? 200 : 404, doc ? { doc } : { error: '文档不存在' })
+      } catch (e) {
+        json(res, 400, { error: e instanceof Error ? e.message : String(e) })
+      }
+      return
+    }
     // 移动文档到指定空间 / 目录
     if (req.method === 'PATCH' && path.startsWith('/api/knowledge/') && path.endsWith('/move')) {
       const m = path.match(/^\/api\/knowledge\/([^/]+)\/move$/)

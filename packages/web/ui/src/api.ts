@@ -439,6 +439,20 @@ export async function moveKnowledgeDoc(id: string, spaceId: string, folderId?: s
   return res.ok
 }
 
+/** 更新单个知识文档元数据字段（标题/来源/标签/工作区/空间/目录等，运行时立即生效）。 */
+export async function updateKnowledgeDoc(
+  id: string,
+  patch: { title?: string; source?: string; workspace?: string; tags?: string[]; specId?: string; spaceId?: string; folderId?: string | null },
+  scope?: 'global' | 'workspace',
+): Promise<boolean> {
+  const res = await apiFetch(`/api/knowledge/docs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...patch, scope }),
+  })
+  return res.ok
+}
+
 /** 知识库问答检索命中（溯源）。 */
 export interface KnowledgeHit {
   chunkId: string

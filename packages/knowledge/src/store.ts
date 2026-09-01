@@ -61,6 +61,18 @@ export interface KnowledgeDocFilter {
   q?: string
 }
 
+/** 文档字段更新输入：仅更新提供的字段（title 空串忽略，tags 空数组清空）。 */
+export interface UpdateDocumentInput {
+  title?: string
+  source?: string
+  workspace?: string
+  scope?: KnowledgeScope
+  specId?: string
+  tags?: string[]
+  spaceId?: string
+  folderId?: string | null
+}
+
 /**
  * 文件形式知识库存储：文档元数据 + 分块 + 向量一起序列化到一个 JSON 索引文件。
  * 写入权限 600，与 config/memories 对齐。
@@ -265,6 +277,39 @@ export class FileKnowledgeStore {
     doc.updatedAt = Date.now()
     this.flush()
     return true
+  }
+
+  /**
+   * 更新单个文档的元数据字段（运行时直接改内存 cache 并 flush，无需重启即可生效）。
+   * 支持改 title/source/tags/workspace/specId/scope，以及空间/目录（spaceId/folderId）归属。
+   */
+  async updateDocument(id: string, patch: UpdateDocumentInput): Promise<KnowledgeDoc | undefined> {
+    const data = this.load()
+    const doc = data.docs.find((d) => d.id === id)
+    if (!doc) return undefined
+    let targetSpaceId = doc.spaceId ?? DEFAULT_SPACE_ID
+    let targetFolderId = doc.folderId ?? null
+    if (patch.spaceId !== undefined) {
+      if (!data.spaces.some((s) => s.id === patch.spaceId)) throw new Error('目标知识空间不存在')
+      targetSpaceId = patch.spaceId
+    }
+    if (patch.folderId !== undefined) {
+      if (patch.folderId !== null && !data.folders.some((f) => f.id === patch.folderId && f.spaceId === targetSpaceId)) {
+        throw new Error('目标目录不存在')
+      }
+      targetFolderId = patch.folderId
+    }
+    if (typeof patch.title === 'string' && patch.title.trim()) doc.title = patch.title.trim()
+    if (typeof patch.source === 'string') doc.source = patch.source.trim()
+    if (patch.workspace !== undefined) doc.workspace = patch.workspace?.trim() || undefined
+    if (patch.scope !== undefined) doc.scope = patch.scope
+    if (patch.specId !== undefined) doc.specId = patch.specId?.trim() || undefined
+    if (patch.tags !== undefined) doc.tags = patch.tags.length ? patch.tags.map((t) => String(t).trim()).filter(Boolean) : undefined
+    doc.spaceId = targetSpaceId
+    doc.folderId = targetFolderId
+    doc.updatedAt = Date.now()
+    this.flush()
+    return doc
   }
 
   async get(id: string): Promise<KnowledgeDoc | undefined> {

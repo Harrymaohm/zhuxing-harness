@@ -64,6 +64,52 @@ describe('FileKnowledgeStore + retriever', () => {
 
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('updateDocument 改字段并持久化，支持空间/目录归属', async () => {
+    const dir = tmp()
+    const store = new FileKnowledgeStore({ path: join(dir, 'index.json') })
+    const space = await store.createSpace('工程库')
+    const folder = await store.createFolder(space.id, '施工文档')
+    const doc = await store.addDocument({
+      title: '旧标题',
+      source: 'a.txt',
+      scope: 'global',
+      text: '原始内容。'.repeat(50),
+      tags: ['旧'],
+    })
+
+    const updated = await store.updateDocument(doc.id, {
+      title: '新标题',
+      tags: ['新标签', '施工'],
+      workspace: '/work/x',
+      spaceId: space.id,
+      folderId: folder.id,
+    })
+    expect(updated?.title).toBe('新标题')
+    expect(updated?.tags).toEqual(['新标签', '施工'])
+    expect(updated?.workspace).toBe('/work/x')
+    expect(updated?.spaceId).toBe(space.id)
+    expect(updated?.folderId).toBe(folder.id)
+
+    // 同实例可见
+    expect((await store.get(doc.id))?.title).toBe('新标题')
+    // 重新加载验证已写盘
+    const store2 = new FileKnowledgeStore({ path: join(dir, 'index.json') })
+    expect((await store2.get(doc.id))?.workspace).toBe('/work/x')
+
+    // 不存在文档返回 undefined
+    expect(await store.updateDocument('missing', { title: 'x' })).toBeUndefined()
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('updateDocument 校验目标空间/目录不存在时报错', async () => {
+    const dir = tmp()
+    const store = new FileKnowledgeStore({ path: join(dir, 'index.json') })
+    const doc = await store.addDocument({ title: 't', source: 'a', scope: 'global', text: '内容内容。'.repeat(20) })
+    await expect(store.updateDocument(doc.id, { spaceId: 'nonexistent' })).rejects.toThrow('目标知识空间不存在')
+    rmSync(dir, { recursive: true, force: true })
+  })
 })
 
 describe('createKnowledgeBase', () => {
