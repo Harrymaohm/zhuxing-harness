@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>筑星 Harness</title>
     <link rel="icon" href="/harness.ico" type="image/x-icon" />
+    <script>
+      // 首帧前定主题：暗色为默认，用户手动切过则沿用其选择。
+      // 刻意不跟随系统偏好——暗色是本产品的默认呈现。
+      try {
+        var saved = localStorage.getItem('harness-theme')
+        document.documentElement.dataset.theme = saved === 'light' ? 'light' : 'dark'
+      } catch (err) {
+        document.documentElement.dataset.theme = 'dark'
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

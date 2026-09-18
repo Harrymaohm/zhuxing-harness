@@ -1,0 +1,432 @@
+/* ============================================================
+   工作区面板（终端 + 网页预览）
+   —— 独立文件，class 统一加 xd- 前缀，避免与主样式表互相污染。
+   颜色/间距/圆角全部复用 style.css 里已定义的 token，
+   因此深色与浅色两套主题自动成立。
+   ============================================================ */
+
+.xd-launcher {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: var(--z-float);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: var(--r-2) 0 0 var(--r-2);
+  background: var(--surface-1);
+  color: var(--text-dim);
+  cursor: pointer;
+  box-shadow: var(--shadow-2);
+  transition: color var(--t-2) var(--e-out), background var(--t-2) var(--e-out);
+}
+
+.xd-launcher:hover {
+  color: var(--accent);
+  background: var(--surface-2);
+}
+
+.xd-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  box-shadow: var(--glow);
+}
+
+.xd-dock {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-float);
+  width: min(440px, 46vw);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+}
+
+.xd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.xd-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.xd-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-3);
+  border: 1px solid transparent;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--f-sm);
+  cursor: pointer;
+  transition: color var(--t-2) var(--e-out), background var(--t-2) var(--e-out);
+}
+
+.xd-tab:hover {
+  color: var(--text);
+  background: var(--glass-hi);
+}
+
+.xd-tab-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.xd-badge {
+  min-width: 16px;
+  padding: 0 var(--s-1);
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: var(--f-xs);
+  line-height: 16px;
+  text-align: center;
+}
+
+.xd-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-1);
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--t-1) var(--e-out), background var(--t-1) var(--e-out);
+}
+
+.xd-icon-btn:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.xd-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.xd-text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--f-xs);
+  cursor: pointer;
+  transition: color var(--t-1) var(--e-out), border-color var(--t-1) var(--e-out);
+}
+
+.xd-text-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-hi);
+}
+
+.xd-text-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.xd-danger {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+}
+
+/* ---------- 终端 ---------- */
+
+.xd-term {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.xd-term-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.xd-cwd {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--f-xs);
+}
+
+.xd-term-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex: none;
+}
+
+.xd-term-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s-2) var(--s-3) 0;
+  font-family: var(--font-mono);
+  font-size: var(--f-sm);
+  line-height: 1.6;
+}
+
+.xd-entry + .xd-entry {
+  margin-top: var(--s-3);
+}
+
+.xd-entry-cmd {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+
+.xd-prompt {
+  flex: none;
+  color: var(--accent);
+  user-select: none;
+}
+
+.xd-cmd-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.xd-entry-out {
+  margin: var(--s-1) 0 0;
+  padding: 0;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  font: inherit;
+}
+
+.xd-status {
+  margin-top: var(--s-1);
+  font-size: var(--f-xs);
+  word-break: break-word;
+}
+
+.xd-status-run {
+  color: var(--accent);
+}
+
+.xd-status-ok {
+  color: var(--ok);
+}
+
+.xd-status-bad {
+  color: var(--err);
+}
+
+.xd-term-input {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.xd-term-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--f-sm);
+  outline: none;
+}
+
+.xd-run-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-1);
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.xd-run-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---------- 预览 ---------- */
+
+.xd-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.xd-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+
+/* 地址栏：既是 URL 入口也是文件路径入口（参考 Trae 的预览范式） */
+.xd-addr-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--s-1) 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--f-xs);
+  outline: none;
+}
+
+.xd-addr-input::placeholder {
+  color: var(--text-faint);
+}
+
+.xd-url-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.xd-url-chip {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--f-xs);
+  cursor: pointer;
+}
+
+.xd-url-chip:hover {
+  color: var(--text);
+  border-color: var(--line-hi);
+}
+
+.xd-url-chip-active {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.xd-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: #ffffff;
+}
+
+/* ---------- 文件预览 ---------- */
+
+.xd-file {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.xd-file-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-3);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--f-xs);
+}
+
+.xd-file-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  padding: var(--s-3);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--f-sm);
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.xd-err {
+  color: var(--err);
+}
+
+/* ---------- 空态 ---------- */
+
+.xd-empty {
+  padding: var(--s-3) 0;
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+  font-size: var(--f-sm);
+  line-height: 1.7;
+}
+
+.xd-empty-lg {
+  padding: var(--s-5) var(--s-4);
+}
+
+.xd-empty p {
+  margin: 0 0 var(--s-2);
+}
+
+.xd-dim {
+  color: var(--text-faint);
+}
+
+.xd-empty code {
+  padding: 1px var(--s-1);
+  border-radius: var(--r-1);
+  background: var(--glass-hi);
+  font-family: var(--font-mono);
+  font-size: var(--f-xs);
+}

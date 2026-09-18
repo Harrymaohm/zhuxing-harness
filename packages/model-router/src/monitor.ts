@@ -25,6 +25,9 @@ export class ModelMonitorImpl implements ModelMonitor {
         p95LatencyMs: 0,
         totalTokens: 0,
         estCost: 0,
+        totalCacheHitTokens: 0,
+        totalCacheMissTokens: 0,
+        cacheHitRate: 0,
       }
     }
     const ok = calls.filter((c) => c.ok).length
@@ -33,6 +36,9 @@ export class ModelMonitorImpl implements ModelMonitor {
     const avgLatencyMs = latencies.reduce((s, v) => s + v, 0) / latencies.length
     const p95Index = Math.min(latencies.length - 1, Math.floor((latencies.length - 1) * 0.95))
     const lastError = calls.find((c) => !c.ok && c.error)?.error
+    const totalCacheHitTokens = calls.reduce((s, c) => s + (c.cacheHitTokens ?? 0), 0)
+    const totalCacheMissTokens = calls.reduce((s, c) => s + (c.cacheMissTokens ?? 0), 0)
+    const cacheDenom = totalCacheHitTokens + totalCacheMissTokens
     return {
       calls: calls.length,
       ok,
@@ -42,6 +48,9 @@ export class ModelMonitorImpl implements ModelMonitor {
       p95LatencyMs: latencies[p95Index],
       totalTokens: calls.reduce((s, c) => s + (c.promptTokens ?? 0) + (c.completionTokens ?? 0), 0),
       estCost: Number(calls.reduce((s, c) => s + (c.estCost ?? 0), 0).toFixed(6)),
+      totalCacheHitTokens,
+      totalCacheMissTokens,
+      cacheHitRate: cacheDenom > 0 ? Number((totalCacheHitTokens / cacheDenom).toFixed(4)) : 0,
       lastError,
     }
   }

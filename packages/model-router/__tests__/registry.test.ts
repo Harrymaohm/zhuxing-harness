@@ -41,4 +41,10 @@ describe('模型注册表（热插拔）', () => {
     registry.register({ id: 'plain' }, fakeProvider('plain'))
     expect(registry.get('plain')?.spec.capabilities).toEqual(['general'])
   })
+
+  it('空 capabilities 列表也归一化为 general', () => {
+    const registry = new ModelRegistryImpl()
+    registry.register({ id: 'empty', capabilities: [] }, fakeProvider('empty'))
+    expect(registry.get('empty')?.spec.capabilities).toEqual(['general'])
+  })
 })

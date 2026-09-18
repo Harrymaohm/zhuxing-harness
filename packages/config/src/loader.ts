@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 import type { PluginModule } from '@zhuxing/harness-kernel'
+import { verifyPluginEntryFile } from '@zhuxing/harness-kernel'
 import type {
   BundleFile,
   PatchOp,
@@ -36,6 +37,9 @@ function withBuildLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 /**
  * 加载插件模块：
+ * - **先做签名校验**：配置了信任公钥（keyring）时，未签名/公钥不可信/签名无效/内容与签名不符一律拒绝加载
+ *   （fail-closed，见 verifyPluginEntryFile）。未配置时保持既有行为，只提示一次「签名未校验」。
+ *   注意：签名校验是真边界（加载前拒绝），但它不限制插件运行期的任何行为——那是治理问题，见权限清单。
  * - .ts/.tsx/.mts 用 esbuild 转译为 ESM 后 import。
  * - **内容哈希缓存**：产物文件名由文件内容哈希决定，内容未变时跳过重复构建（热启动显著提速）。
  * - .js/.mjs 直接 import。
@@ -43,6 +47,10 @@ function withBuildLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
  */
 export async function loadPluginModule(filePath: string): Promise<PluginModule> {
   const abs = resolve(filePath)
+  const trust = await verifyPluginEntryFile(abs)
+  if (trust.status === 'rejected') {
+    throw new Error(`[config] 拒绝加载插件 ${abs}：签名校验未通过——${trust.reason}`)
+  }
   const ext = abs.toLowerCase()
   if (ext.endsWith('.ts') || ext.endsWith('.tsx') || ext.endsWith('.mts')) {
     const content = await readFile(abs, 'utf-8')

@@ -55,7 +55,7 @@ export function apply(ctx: Context) {
 
 ### Tool execution pipeline
 
-`tools.execute` always goes through: pre-execute interception event → sandbox guard (declared by the `sandbox` field) → timeout & retry → result normalization.
+`tools.execute` always goes through: pre-execute interception event → plugin permission adjudication (the plugin's `permissions`) → sandbox guard (declared by the `sandbox` field) → timeout & retry → result normalization.
 
 ```ts
 execute: (args) => ({ text: '...' })          // success
@@ -100,6 +100,45 @@ export const provides = ['my-service']    // provided service names (for depende
 - Unmount order: consumers before providers; `ctx.effect` runs in reverse order
 - `ctx.effect` must be idempotent (hot reload runs it repeatedly)
 - Tool registration must bind cleanup via `ctx.effect(unregister)`, otherwise hot reload leaves residue
+
+## Permission manifest (governance, not isolation)
+
+A plugin may declare `permissions` to constrain resource access **through the harness boundary**:
+
+```ts
+export const permissions = {
+  fsRead: ['/data/**'],        // read scopes (absolute path prefix or glob)
+  fsWrite: ['/tmp/my-plugin'], // write scopes
+  shell: ['echo', 'git'],      // command first-word allowlist
+  net: ['api.example.com'],    // declaration only (no enforcement point yet)
+  env: ['MY_TOKEN'],           // declaration only (same)
+}
+```
+
+- **Enforcement point**: the tool execution boundary. `args[writeArg] ⊆ fsWrite`, `args[readArg] ⊆ fsRead`,
+  command first word of `args[commandArg]` ∈ `shell`; a violation is **refused** with a readable reason and is
+  auditable via `tools/after-exec` (`rejectedBy: 'plugin-permissions'`).
+- **Capability boundary**: permissions take effect **through the harness boundary, they are NOT process isolation**.
+  A plugin is arbitrary in-process JS and can bypass all of this by calling `import('node:fs')` / `child_process`
+  directly; plugins without `permissions`, and undeclared dimensions, are unrestricted.
+- So it is governance/audit, not a sandbox. The real supply-chain boundary is signature verification below.
+
+## Signature verification (real boundary: refused before load)
+
+Signatures are verified **before a plugin is loaded** (trust root: `HARNESS_PLUGIN_KEYRING` > config `plugins.trustedKeys`):
+
+```bash
+harness plugin-keygen --out my-key.pem            # generate an ed25519 key pair (private key is 0600, never commit)
+harness plugin-sign ./my-plugin --key my-key.pem  # sign the plugin directory (.harness-signature.json)
+harness plugin-verify ./my-plugin                 # verify independently
+export HARNESS_PLUGIN_KEYRING="my-key:<public-key base64>"  # once set, loads/installs must verify
+```
+
+- The signature covers the digest of **every participating file in the plugin directory**, excluding
+  `node_modules/`, `.git/`, `dist/`, `.harness-cache/`, `*.map`, `*.tsbuildinfo` and the signature file itself.
+- With a keyring configured: unsigned / untrusted key / invalid signature / content mismatch → **load or install is refused** (fail-closed).
+- Without a keyring: existing behavior is preserved (allowed to load) but a notice is printed
+  ("plugin signature not verified") — not verifying is not the same as passing.
 
 ## Development workflow
 

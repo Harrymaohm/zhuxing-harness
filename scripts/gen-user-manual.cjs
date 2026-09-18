@@ -1,11 +1,13 @@
 /* eslint-disable */
 // 生成《筑星Harness 用户手册》Word 文档（.docx）
 // 依赖项目已有的 adm-zip 打包合法 docx。可重复运行，覆盖输出。
+// v0.3.9：新增「目标校验 / 交付简报 / 流式思考 / 知识库文档编辑 / 更新状态 / 内核热更新 / 回合重建」等能力说明
 const fs = require('fs')
 const path = require('path')
 const AdmZip = require('E:/筑星Harness/node_modules/adm-zip')
 
-const OUT = path.join('E:/筑星Harness', '筑星Harness-用户手册-0.3.7.docx')
+const VERSION = '0.3.9'
+const OUT = path.join('E:/筑星Harness', `筑星Harness-用户手册-${VERSION}.docx`)
 
 /** XML 转义。 */
 function esc(s) {
@@ -123,7 +125,7 @@ ${bodyXml}
   <dc:title>${esc(title)}</dc:title>
   <dc:creator>筑星 Harness</dc:creator>
   <dc:subject>新用户使用手册</dc:subject>
-  <dc:description>筑星 Harness v0.3.7 新用户配置与功能说明</dc:description>
+  <dc:description>筑星 Harness v${VERSION} 新用户配置与功能说明</dc:description>
 </cp:coreProperties>`, 'utf-8'))
 
   // docProps/app.xml
@@ -133,7 +135,7 @@ ${bodyXml}
   <DocSecurity>0</DocSecurity>
   <ScaleCrop>false</ScaleCrop>
   <Company>Zhuxing</Company>
-  <AppVersion>0.3.7</AppVersion>
+  <AppVersion>${VERSION}</AppVersion>
 </Properties>`, 'utf-8'))
 
   zip.writeZip(OUT)
@@ -142,25 +144,26 @@ ${bodyXml}
 
 // ===== 正文内容 =====
 const body = []
-body.push(p('筑星 Harness v0.3.7 —— 新用户使用手册', { bold: true }))
-body.push(p('版本：0.3.7 ｜ 适用对象：第一次使用筑星 Harness 的你'))
+body.push(p(`筑星 Harness v${VERSION} —— 新用户使用手册`, { bold: true }))
+body.push(p(`版本：${VERSION} ｜ 适用对象：第一次使用筑星 Harness 的你`))
 body.push(hr())
 body.push(heading('一、筑星 Harness 是什么？', 1))
 body.push(p('用一句话说：筑星 Harness 是一个「AI 全能助手」。'))
 body.push(p('你像和一位很能干的助理聊天一样，用普通中文把想做的事告诉它，它会自己判断该用什么「工具」来完成——比如读文件、查目录、运行命令、看图片、生成图片、生成视频、生成语音、记住你的喜好、从知识库查资料等等。整个过程你只需要开口说，它来做。'))
+body.push(p('更重要的是，它不是「用一次就忘」的助手。它会把你上传的规范、资料沉淀成可溯源的知识，把你跑通的流程固化成可复用的技能——用一次，学一次，越用越懂你。'))
 body.push(p('它有两大用法：'))
 body.push(bullet('网页版（推荐新手）：一个在浏览器里打开的漂亮界面，点几下就能配置和对话。'))
 body.push(bullet('命令行版：在终端输入 harness 命令，适合习惯命令行的用户，也能写脚本自动化。'))
 body.push(tip('小提醒：本手册主要面向「网页版」新手。网页版已经覆盖了最常用的所有能力。'))
 
 body.push(heading('二、快速上手：5 分钟跑起来', 1))
-body.push(numbered('双击安装包「zhuxing-harness-setup-0.3.7.exe」，一路下一步即可完成安装。'))
+body.push(numbered(`双击安装包「zhuxing-harness-setup-${VERSION}.exe」，一路下一步即可完成安装。`))
 body.push(numbered('安装后，在「开始菜单」找到并打开「筑星 Harness」，或直接在浏览器访问 http://127.0.0.1:3080 。'))
 body.push(numbered('首次打开会看到「先连接你的模型」的引导页，点击「打开设置」。'))
 body.push(numbered('在设置里填写「API 密钥」（Key）和「模型名」，点保存。'))
 body.push(numbered('回到对话界面，在输入框里输入任务，按 Enter 或点「发送」即可开始。'))
 body.push(code('首次配置一般只需要两样东西：\n① API 密钥（模型服务商给你的一串 sk- 开头的字符）\n② 模型名（例如 deepseek-v4-flash / deepseek-v4-pro）'))
-body.push(tip('没有 API 密钥？你可以去模型平台注册（例如 DeepSeek 开放平台），创建一个 Key。也支持任意「OpenAI 兼容」的模型端点。'))
+body.push(tip('没有 API 密钥？你可以去模型平台注册（例如 DeepSeek 开放平台、阿里云百炼），创建一个 Key。也支持任意「OpenAI 兼容」的模型端点；在不通外网的纯内网环境，也能用国产模型把整套跑起来。'))
 
 body.push(heading('三、设置面板：每个分区干什么', 1))
 body.push(p('点击界面左下角「⚙ 设置」，会打开一个分成多个「页签（Tab）」的设置窗口。下面逐个解释，你只需要看自己用的部分。'))
@@ -199,7 +202,7 @@ body.push(bullet('Realtime 模型：实时语音对话（当前为占位，暂�
 body.push(p('一句话理解：这个分区是「一个平台入口，多个能力同时开」。不适用就跳过。'))
 
 body.push(heading('5. 专业化能力包（面向专业领域的增量包）', 2))
-body.push(p('这是 0.3.7 新增的能力。专业化能力包把某一专业领域（比如建筑、电网）的「技能 + 内置知识」打包成一个 .zip 文件。安装后，它会自动把技能注册进技能系统、把内置知识文档放进知识库；你可以按需启用或禁用，禁用后自动隔离、不影响普通功能。'))
+body.push(p('这是面向特定专业领域（比如建筑、电网、医疗）的增量能力包。它把某一领域的「技能 + 内置知识」打包成一个 .zip 文件。安装后，它会自动把技能注册进技能系统、把内置知识文档放进知识库；你可以按需启用或禁用，禁用后自动隔离、不影响普通功能。'))
 body.push(bullet('安装：在「专业化」页签选择 .zip 能力包 → 点「安装并启用」。'))
 body.push(bullet('启用/禁用：已安装的包可随时开启或关闭。'))
 body.push(bullet('移除：不再需要时可移除，其技能与知识将不再参与。'))
@@ -212,7 +215,7 @@ body.push(bullet('你可以在「记忆」页签查看、添加或删除记忆�
 
 body.push(heading('7. 技能', 2))
 body.push(p('一整套可复用的「经验模板」。你可以把某类任务的步骤存成技能，下次一键复用。'))
-body.push(bullet('支持上传 .yaml / .zip 技能包。'))
+body.push(bullet('支持上传 .yaml / .yml / SKILL.md 单文件，或 .zip 技能包（包内按“技能名/SKILL.md”识别，可含多个技能）。'))
 body.push(bullet('在对话里输入 /技能名 也能快速触发。'))
 body.push(bullet('在「技能」页签可以新建、删除、查看技能。'))
 
@@ -230,6 +233,8 @@ body.push(tip('安全建议：如果工作区里没有重要文件，直接用�
 
 body.push(heading('10. 更新', 2))
 body.push(p('检查并安装新版本。点击「检查更新」看是否有新版，有的话可以一键更新。'))
+body.push(p('本版新增「更新状态」展示：更新完成后，界面会显示这一步「成功 / 已回滚 / 失败」的状态，并附上本次内核变更说明，方便你确认更新结果。'))
+body.push(bullet('内核热更新（本版改进）：代码或内核版本变化时，无需重启服务即可自动换上新内核逻辑，让更新更顺滑。'))
 
 body.push(heading('四、它到底能帮你做什么？（功能清单）', 1))
 body.push(p('下面把这些能力说得大白话，方便你知道「能交给它做什么」。'))
@@ -282,8 +287,8 @@ body.push(bullet('从一个对话「分叉」出子对话，单独探索，再�
 body.push(heading('12. 文件预览', 2))
 body.push(p('拖进来的文件可以预览：PDF、Word（.docx）、Excel（.xlsx）、PPT（.pptx）、以及文本类文件。'))
 
-body.push(heading('13. 知识库（自生长知识库 / RAG）—— 本版重点', 2))
-body.push(p('这是 0.3.7 新增的全新能力。你可以把文档、资料、规范等上传到「知识库」，之后 Agent 就能在对话中基于这些资料回答你的问题，并标注来源。'))
+body.push(heading('13. 知识库（自增长知识库 / RAG）', 2))
+body.push(p('你可以把规范、资料、文档等上传到「知识库」，之后 Agent 就能在对话中基于这些资料回答你的问题，并标注来源。'))
 body.push(bullet('在左侧栏点「知识库」进入知识库页面。'))
 body.push(bullet('上传：支持 txt/md/csv/json/yaml/code 及 docx/pptx/xlsx 等文件；也可以直接粘贴文字入库。'))
 body.push(bullet('自动分块：上传的文档会自动切分成小片段（chunk）。'))
@@ -292,24 +297,53 @@ body.push(bullet('知识空间与目录：可建多个知识空间，空间下�
 body.push(bullet('知识库问答（带溯源）：针对某个空间提问，AI 基于检索片段作答，并在句末标注 [1][2] 来源编号，可点击溯源到原文词条。'))
 body.push(bullet('信息链接图谱：以图谱形式可视化文档与标签之间的关联。'))
 body.push(bullet('命中内容会注入到每次对话的 systemPrompt（上限 8KB），让 AI 在对话中自动用上知识库资料。'))
+body.push(bullet('文档字段编辑（本版新增）：在知识库页面可直接修改文档的「标题 / 来源 / 标签 / 归属空间与目录」，改完即时生效，无需重启服务。'))
 body.push(tip('小提示：要启用完整「语义检索」，需配置知识库的 Embedding（一个 OpenAI 兼容的 /embeddings 接口）。没有的话也能用，只是按关键词匹配。'))
 
 body.push(heading('14. 专业化能力包', 2))
 body.push(p('安装某个专业领域的能力包后，该领域的「技能 + 内置知识」就齐了。可以在对话里直接用，也能在知识库里检索到对应的专业资料。'))
 
+body.push(heading('15. 目标校验（自动补做）', 2))
+body.push(p('这是本版新增的「尽责」能力。当你交给它一个任务，它在给出最终答复之前，会先自己「检查一遍」目标是否真的完成了；如果发现漏了什么，会自动补做（默认最多补 2 次），尽量避免「看似完成、实则遗漏」。'))
+body.push(bullet('对用户来说：任务更可靠，不容易半途而废。'))
+body.push(bullet('补做上限可按需调整；不需要时会放行。'))
+
+body.push(heading('16. 交付简报', 2))
+body.push(p('每次任务完成后，它会自动沉淀一份「过程 + 背景」的简报。之后你再提起这个任务，它会优先引用这份简报，而不是翻一遍冗长的原始记录。让你随时知道之前做了什么、为什么这么做。'))
+
+body.push(heading('17. 流式思考输出', 2))
+body.push(p('如果你用的是「推理型」模型，它的思考过程（reasoning）会实时滚动显示在界面上，刷新历史后也能还原查看。你可以直观看到它是怎么一步步想、怎么得出结论的。'))
+body.push(tip('小提示：并非所有模型都会输出思考内容。只有具备「推理/思考」能力的模型才有这个过程。'))
+
+body.push(heading('18. 内核热更新（本版改进）', 2))
+body.push(p('当代码或内核版本发生变化时，无需重启服务即可自动换上新内核逻辑。这意味着更新变得更顺滑，你几乎感觉不到中断。'))
+
+body.push(heading('19. 回合重建（本版改进）', 2))
+body.push(p('历史对话会按「回合」整理：从你发的一句话，到中间多步工具调用，再到最终结论，会被合并成一条清晰的记录，观感与实时对话一致，查找也更方便。'))
+
+body.push(heading('20. 循环内上下文管理（本版改进）', 2))
+body.push(p('面对很长的对话，模型每轮调用前都会自动检查上下文是否超出预算；超了会自动按「滑动窗口」裁剪，保证不被一长串工具调用撑爆，长任务也不容易出错。'))
+
+body.push(heading('21. 流程复用与记忆沉淀（本版改进）', 2))
+body.push(p('它会把跑通的经验沉淀为可复用流程，把关于你的偏好沉淀为记忆。用得越多，它越懂你，越省你的力——它会引导优先复用已有流程，多沉淀多记忆，真正「和用户一起成长」。'))
+body.push(p('历史对话会按「回合」整理：从你发的一句话，到中间多步工具调用，再到最终结论，会被合并成一条清晰的记录，观感与实时对话一致，查找也更方便。'))
+
 body.push(heading('五、常见问题（FAQ）', 1))
-body.push(numbered('API 密钥在哪找？→ 去你选择的模型平台（如 DeepSeek 开放平台）注册并创建密钥。'))
+body.push(numbered('API 密钥在哪找？→ 去你选择的模型平台（如 DeepSeek 开放平台、阿里云百炼）注册并创建密钥。'))
 body.push(numbered('为什么不能看图/OCR？→ 检查是否勾选了「主模型支持多模态」，并且所用模型支持读图。'))
 body.push(numbered('为什么没有生图/生视频/生语音按钮？→ 需要在设置里先配置对应的“生图模型”或“token-plan”相关模型，配置后这些能力会自动出现。'))
 body.push(numbered('工作区是什么？→ Agent 干活时读写文件的“地盘”，可以选一个专门的空文件夹，更安全。'))
 body.push(numbered('想让 Agent 记住我的偏好？→ 在对话里说“记住我喜欢简洁回答”，它会存进记忆；也可在设置“记忆”里查看/删除。'))
 body.push(numbered('怎么切换模型？→ 在主模型页签改模型名即可；若要自动分工，去“子模型”页签配置。'))
 body.push(numbered('知识库怎么用？→ 先到「知识库」页面上传文档；若要语义检索，在知识库设置里配置 Embedding。之后对话时 AI 会自动调用 search_knowledge 检索作答。'))
+body.push(numbered('知识库文档能改属性吗？→ 能。在知识库页面直接修改文档的标题/来源/标签/归属空间与目录，改完即时生效，无需重启。'))
 body.push(numbered('专业化能力包怎么装？→ 在「设置 → 专业化」页签选择一个 .zip 能力包，点「安装并启用」。'))
+body.push(numbered('它会不会“偷懒”漏做？→ 不会。本版新增目标校验，它在给出答案前会自查是否真正完成，漏了会自动补做（默认最多补 2 次）。'))
+body.push(numbered('这是不是又一款聊天工具？→ 不是。它能真正操作你的本机文件、执行脚本、交付图片/视频/语音等产物，并把知识和技能沉淀下来，越用越强。'))
 
 body.push(hr())
 body.push(p('希望这份手册能帮你快速上手。打开界面，说一句「总结当前目录结构」或「帮我看这张截图」，就能立刻感受它的能力。', { bold: true }))
-body.push(p('—— 筑星 Harness 团队'))
+body.push(p(`—— 筑星 Harness 团队 · v${VERSION}`))
 
-const out = buildDocx('筑星 Harness 用户手册（0.3.7）', body.join('\n'))
+const out = buildDocx(`筑星 Harness 用户手册（${VERSION}）`, body.join('\n'))
 console.log('已生成：' + out)

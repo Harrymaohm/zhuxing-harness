@@ -5,6 +5,12 @@ packages:
 
 allowBuilds:
   esbuild: true
+  # Electron 靠 postinstall 释放本地缓存的二进制；默认只放行 esbuild 会导致它装完不能用
+  electron: true
+  # electron-builder 的安装器辅助包（P1 桌面安装包），同样靠 postinstall 铺二进制
+  electron-winstaller: true
 
 onlyBuiltDependencies:
   - esbuild
+  - electron
+  - electron-winstaller

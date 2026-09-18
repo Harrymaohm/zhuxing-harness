@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import type { PermissionLevel } from '@zhuxing/harness-sandbox'
 
 /** 用户级配置（凭证与默认值），持久化到 ~/.zhuxing-harness/config.json。 */
 export interface HarnessConfig {
@@ -8,9 +9,20 @@ export interface HarnessConfig {
   baseUrl?: string
   model?: string
   workspace?: string
-  level?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  level?: PermissionLevel
   /** 应用内更新源地址（自建 HTTP 静态服务，manifest.json + 增量包）。 */
   updateUrl?: string
+  /**
+   * 插件供应链治理：签名信任清单（keyring）。元素形如 `<别名>:<公钥>` 或裸公钥（ed25519，base64）。
+   * 环境变量 `HARNESS_PLUGIN_KEYRING` 优先级更高。配了它，从文件加载的插件就必须通过签名校验。
+   */
+  plugins?: { trustedKeys?: string[] }
+  /**
+   * MCP（Model Context Protocol）stdio server 配置，沿用 Claude Desktop / Cursor 的 mcpServers 形状：
+   * `{ "<server>": { command, args?, env?, cwd? } }`。
+   * 注意：接入 server 等于把它的能力并入 agent，且它运行在外部进程里，路径沙箱管不到它碰什么文件。
+   */
+  mcpServers?: Record<string, unknown>
   [key: string]: unknown
 }
 

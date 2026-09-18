@@ -14,7 +14,9 @@ describe('基础 bundle', () => {
       'harness-session',
       'harness-tools',
       'harness-llm',
+      'harness-telemetry',
       'harness-core-tools',
+      'harness-self-knowledge',
       'harness-image-tools',
       'harness-token-plan-media',
       'harness-memory',
@@ -23,6 +25,9 @@ describe('基础 bundle', () => {
       'harness-model-router',
       'harness-agent',
     ])
+    // 遥测插件只在订阅侧工作：不 inject 任何服务，默认关闭且零网络
+    const telemetry = plugins.find((p) => p.name === 'harness-telemetry')!
+    expect(telemetry.inject).toBeUndefined()
     // agent 循环依赖声明
     const agent = plugins.find((p) => p.name === 'harness-agent')!
     expect(agent.inject).toEqual(['llm', 'tools', 'sessionService'])

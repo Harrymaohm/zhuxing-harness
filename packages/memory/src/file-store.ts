@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { MemoryEntry, MemoryFilter, MemoryScope, MemoryStore } from './types.js'
@@ -18,13 +18,35 @@ export class FileMemoryStore implements MemoryStore {
   constructor(private readonly path: string = defaultMemoryPath()) {}
 
   private readAll(): MemoryEntry[] {
+    let raw: string
     try {
-      if (!existsSync(this.path)) return []
-      const raw = readFileSync(this.path, 'utf-8').trim()
-      if (!raw) return []
+      // 去掉 UTF-8 BOM：记事本等编辑器保存的 JSON 常带 BOM，会让 JSON.parse 直接抛错，
+      // 若不处理就会被下面的损坏分支误判成「文件坏了」。
+      raw = readFileSync(this.path, 'utf-8').replace(/^\uFEFF/, '').trim()
+    } catch {
+      // 文件不存在或不可读：属于「还没有记忆」的正常状态
+      return []
+    }
+    if (!raw) return []
+    try {
       const data = JSON.parse(raw)
       return Array.isArray(data) ? (data as MemoryEntry[]) : []
-    } catch {
+    } catch (err) {
+      // 文件存在但解析失败：不能静默返回空数组——下一次写入就会把损坏内容永久覆盖，
+      // 用户视角是「记忆凭空消失」且毫无线索。先备份原文件再告警，保留人工恢复的可能。
+      // 固定文件名而不是带时间戳：损坏文件在无人修复前会被反复读取（list 每次都会读），
+      // 带时间戳会在每次读取时新落一个备份、无界增长。固定名让备份有界（只保留最新一份原始内容），
+      // 而内容本来就来自同一个未被改动的坏文件，覆盖它不会丢失任何信息。
+      const backup = `${this.path}.corrupt`
+      try {
+        writeFileSync(backup, raw, { encoding: 'utf-8', mode: 0o600 })
+      } catch {
+        // 备份失败不阻断主流程，告警里仍带上原路径
+      }
+      console.warn(
+        `[harness] 记忆文件解析失败，已按空记忆继续（原文件备份至 ${backup}）：${this.path} —— ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      )
       return []
     }
   }

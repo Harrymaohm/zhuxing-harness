@@ -1,0 +1,49 @@
+{
+  "id": "refactor-extract-parse",
+  "taskType": "refactor",
+  "title": "把 loadRecord 的解析逻辑抽成可复用的 parseRecord",
+  "task": "工作区里的 record.mjs 把记录串的解析逻辑内联在 loadRecord 里，别的模块想复用这段解析只能复制粘贴。请把解析逻辑抽成一个独立导出的函数 parseRecord(text)，并让 loadRecord 改为调用它。要求：loadRecord 的对外行为与返回值必须完全不变，不得删除或改动 record.test.mjs。只改 record.mjs。",
+  "severity": "P2",
+  "tags": ["refactor", "extract-function"],
+  "repository": {
+    "mode": "fixture",
+    "fixture": "./fixtures/refactor-record-parse"
+  },
+  "constraints": {
+    "maxSteps": 12,
+    "maxWallMs": 120000,
+    "allowedPaths": ["record.mjs"]
+  },
+  "verification": {
+    "runner": "tap",
+    "command": "node --test --test-reporter=tap record.test.mjs",
+    "failToPass": ["parseRecord 可直接解析记录串"],
+    "passToPass": ["loadRecord 保持既有行为"]
+  },
+  "scoring": ["outcome", "process", "compliance", "cost"],
+  "mock": {
+    "rules": [{ "when": { "hasTools": false }, "reply": { "content": "OK" } }],
+    "plan": [
+      {
+        "content": "阅读 record.mjs：解析循环（切分分号、按第一个冒号拆 key/value、数字字面量转 Number）整体内联在 loadRecord 中，抽出来后 loadRecord 只需委托调用。",
+        "toolCalls": [
+          { "name": "read_file", "arguments": { "path": "record.mjs" } }
+        ]
+      },
+      {
+        "content": "已抽出 parseRecord 并让 loadRecord 委托给它，对外行为保持不变。",
+        "toolCalls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "record.mjs",
+              "content": "/**\n * 演示模块：记录串解析。\n */\n\n/** 把 \"a:1;b:2\" 形式的记录串转成对象。 */\nexport function parseRecord(text) {\n  const out = {}\n  for (const part of String(text).split(';')) {\n    if (!part) continue\n    const idx = part.indexOf(':')\n    if (idx < 0) continue\n    const key = part.slice(0, idx).trim()\n    const value = part.slice(idx + 1).trim()\n    out[key] = Number.isNaN(Number(value)) ? value : Number(value)\n  }\n  return out\n}\n\n/** 兼容入口：既有调用方继续走这里，行为与重构前一致。 */\nexport function loadRecord(text) {\n  return parseRecord(text)\n}\n"
+            }
+          }
+        ]
+      },
+      { "content": "重构完成：解析逻辑已可由 parseRecord 单独调用，loadRecord 保持原语义。" }
+    ],
+    "fallback": { "content": "任务已完成。" }
+  }
+}

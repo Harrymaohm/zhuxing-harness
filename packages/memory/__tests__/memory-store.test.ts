@@ -1,9 +1,8 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { FileMemoryStore } from '../src/file-store.js'
-import type { MemoryEntry } from '../src/types.js'
 
 let path: string
 let counter = 0
@@ -13,13 +12,20 @@ function newStore(): { store: FileMemoryStore; path: string } {
   return { store: new FileMemoryStore(path), path }
 }
 
+/** 该 store 产生的损坏备份文件名（readAll 在解析失败时会落一份，固定名、有界）。 */
+function corruptBackups(p: string): string[] {
+  return readdirSync(dirname(p)).filter((f) => f.startsWith(`${basename(p)}.corrupt`))
+}
+
 describe('FileMemoryStore', () => {
   beforeEach(() => {
     newStore()
   })
   afterEach(() => {
     try {
+      // 连同损坏备份一起清掉，避免在系统临时目录里留垃圾
       rmSync(path, { force: true })
+      for (const f of corruptBackups(path)) rmSync(join(dirname(path), f), { force: true })
     } catch {
       // ignore
     }
@@ -110,15 +116,25 @@ describe('FileMemoryStore', () => {
     expect(await store.list()).toHaveLength(0)
   })
 
-  it('空文件与损坏文件容错', async () => {
+  it('空文件与损坏文件容错：损坏内容必须留痕而不是静默清零', async () => {
     const { store, path: p } = newStore()
     // 空文件
-    const { writeFileSync } = await import('node:fs')
     writeFileSync(p, '', 'utf-8')
     expect(await store.list()).toEqual([])
+    expect(corruptBackups(p)).toHaveLength(0)
 
-    // 损坏 JSON
+    // 损坏 JSON：对外仍按「空记忆」继续，但原始内容必须备份留痕，
+    // 否则下一次写入就会把损坏内容永久覆盖，用户视角是「记忆凭空消失」且毫无线索
     writeFileSync(p, '{ broken', 'utf-8')
     expect(await store.list()).toEqual([])
+    const backups = corruptBackups(p)
+    expect(backups).toHaveLength(1)
+    expect(readFileSync(join(dirname(p), backups[0]), 'utf-8')).toBe('{ broken')
+
+    // 带 BOM 的合法 JSON 属于「文件正常」，不应被误判成损坏
+    const bom = `\uFEFF${JSON.stringify([{ id: 'x', scope: 'user', content: '带 BOM', createdAt: 1, updatedAt: 1 }])}`
+    writeFileSync(p, bom, 'utf-8')
+    expect(await store.list()).toHaveLength(1)
+    expect(corruptBackups(p)).toHaveLength(1)
   })
 })

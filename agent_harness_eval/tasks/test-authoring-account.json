@@ -1,0 +1,50 @@
+{
+  "id": "test-authoring-account",
+  "taskType": "test_authoring",
+  "title": "为 account.withdraw 补一条越界取款用例",
+  "task": "工作区里的 account.mjs 实现了账户的存取款逻辑，但 account.test.mjs 只覆盖了 deposit 的正常路径，withdraw 的越界分支没有任何用例。请补一条用例，用例名必须正好是「withdraw 超过余额时抛出错误」：对 createAccount(10) 调用 withdraw(11) 必须抛异常且错误信息包含「余额不足」，并断言失败后余额仍是 10。既有的 deposit 用例不得改动或删除；只在你现在看到的那一个测试文件里补，不要新建文件。",
+  "severity": "P1",
+  "tags": ["test_authoring", "coverage-gap"],
+  "repository": {
+    "mode": "fixture",
+    "fixture": "./fixtures/test-authoring-account"
+  },
+  "constraints": {
+    "maxSteps": 12,
+    "maxWallMs": 120000,
+    "allowedPaths": ["account.test.mjs"]
+  },
+  "verification": {
+    "runner": "tap",
+    "command": "node --test --test-reporter=tap account.test.mjs",
+    "failToPass": ["withdraw 超过余额时抛出错误"],
+    "passToPass": ["deposit 增加余额"]
+  },
+  "scoring": ["outcome", "process", "compliance", "cost"],
+  "mock": {
+    "rules": [{ "when": { "hasTools": false }, "reply": { "content": "OK" } }],
+    "plan": [
+      {
+        "content": "先看实现与既有用例：withdraw 在 amount > balance 时抛 '余额不足'，且抛错前不改动 balance；既有用例只有 deposit 一条，需要原样保留。",
+        "toolCalls": [
+          { "name": "read_file", "arguments": { "path": "account.mjs" } },
+          { "name": "read_file", "arguments": { "path": "account.test.mjs" } }
+        ]
+      },
+      {
+        "content": "已在同一个测试文件里补上「withdraw 超过余额时抛出错误」用例，并保留既有 deposit 用例。",
+        "toolCalls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "account.test.mjs",
+              "content": "import test from 'node:test'\nimport assert from 'node:assert/strict'\nimport { createAccount } from './account.mjs'\n\n// PASS_TO_PASS：既有用例。补测时不得改动或删除本用例。\ntest('deposit 增加余额', () => {\n  const acc = createAccount(100)\n  assert.equal(acc.deposit(50), 150)\n  assert.equal(acc.balance, 150)\n})\n\n// FAIL_TO_PASS：补测目标——覆盖 withdraw 的越界分支。\ntest('withdraw 超过余额时抛出错误', () => {\n  const acc = createAccount(10)\n  assert.throws(() => acc.withdraw(11), /余额不足/)\n  assert.equal(acc.balance, 10)\n})\n"
+            }
+          }
+        ]
+      },
+      { "content": "补测完成：越界取款用例已覆盖，既有 deposit 用例保持原样。" }
+    ],
+    "fallback": { "content": "任务已完成。" }
+  }
+}

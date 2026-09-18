@@ -2,15 +2,29 @@ node_modules/
 dist/
 dist-bin/
 dist-install/
-tools/
+dist-installer/
+# 必须锚定到仓库根（前导斜杠）：不带斜杠的 `tools/` 会匹配任意层级的同名目录，
+# 于是 packages/tools 下**新增**的文件会被静默忽略（已跟踪的旧文件不受影响，
+# 症状就是「写了代码却提交不上」，而且只有新文件才会撞上）。plugins 同理，见下方。
+/tools/
 *.tsbuildinfo
 .pnpm-store/
 .vitest/
 coverage/
 .harness-cache/
-plugins/
+# 仓库根的本地插件目录（pnpm workspace 成员，但不入库）；同样必须锚定，
+# 否则 packages/*/src/plugins 这类嵌套目录里的新文件会被连带忽略
+/plugins/
 *.tgz
 scripts/nsis/.installer.bom.nsi
+
+# 评测产物（报告 / 证据 / 隔离工作区，可由 run.mjs / run-tasks.mjs 重新生成）
+agent_harness_eval/out*/
+agent_harness_eval/_probe-*.mjs
+agent_harness_eval/_smoke-*.mjs
+
+# 评测隔离工作区：中断时可能残留探针落盘文件，不应进版本库
+.work/
 
 # IDE / 临时工具目录（非源码、分发产物或文档，不上传）
 .trae/

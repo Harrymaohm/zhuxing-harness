@@ -52,13 +52,26 @@ export function buildMemoryPrompt(
   }
 }
 
+/** 「对话私有记忆」增强器选项。 */
+export interface SessionMemoryPromptOptions {
+  /** 注入时排除这些标签的记忆（避免与交付简报等重复注入）。 */
+  excludeTags?: string[]
+}
+
 /**
  * 构造「对话私有记忆」增强器：只纳入属于指定会话的记录（scope === 'session' 且 sessionId 匹配）。
- * 用于把某个历史对话自己的记忆摘要注入到本次发送。
+ * 用于把某个历史对话自己的记忆摘要注入到本次发送；可用 excludeTags 排除交付简报等特定类别。
  */
-export function buildSessionMemoryPrompt(store: MemoryStore, sessionId: string): MemoryPromptEnhancer {
+export function buildSessionMemoryPrompt(
+  store: MemoryStore,
+  sessionId: string,
+  options: SessionMemoryPromptOptions = {},
+): MemoryPromptEnhancer {
   return async (basePrompt: string, _userInput: string): Promise<string> => {
-    const entries = (await store.list()).filter((e) => e.scope === 'session' && e.sessionId === sessionId)
+    const excl = options.excludeTags ?? []
+    const entries = (await store.list()).filter(
+      (e) => e.scope === 'session' && e.sessionId === sessionId && !(e.tags ?? []).some((t) => excl.includes(t)),
+    )
     if (entries.length === 0) return basePrompt
 
     const sorted = [...entries].sort((a, b) => b.updatedAt - a.updatedAt)

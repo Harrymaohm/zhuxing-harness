@@ -3,7 +3,7 @@
 > **Everything is a plugin · Permission-controlled · Self-growing knowledge · Reusable skills**
 > A from-scratch, open-source Agent runtime that keeps learning and accumulating knowledge and skills as you use it.
 
-[![Version](https://img.shields.io/badge/version-0.3.8-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-Source--Available%20%2F%20Commercial-9c27b0.svg)](#license)
 [![Node](https://img.shields.io/badge/node-%E2%89%A5%2020-0078d4.svg)](#installation)
 [![Status](https://img.shields.io/badge/status-Active%20Development-brightgreen.svg)](#roadmap-toward-a-self-evolving-kernel)

@@ -1,0 +1,19 @@
+{
+  "name": "@zhuxing/harness-desktop",
+  "version": "0.4.0",
+  "private": true,
+  "description": "筑星 Harness 桌面客户端：自带窗口、托管后端进程、崩溃可诊断",
+  "author": "Zhuxing",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "commonjs",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:installer": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^26.15.3"
+  }
+}

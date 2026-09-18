@@ -10,7 +10,8 @@ export class ModelRegistryImpl implements ModelRegistry {
       throw new Error(`[model-registry] 模型 "${spec.id}" 已注册，禁止重复注册。`)
     }
     const record: RegisteredModel = {
-      spec: { ...spec, capabilities: spec.capabilities ?? ['general'] },
+      // 能力未填或为空列表时归一化为 general，保证 selector 能给出有效评分
+      spec: { ...spec, capabilities: spec.capabilities?.length ? spec.capabilities : ['general'] },
       provider,
       registeredAt: Date.now(),
     }

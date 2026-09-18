@@ -1,6 +1,6 @@
 {
   "name": "@zhuxing/harness-memory",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "筑星 Harness 记忆服务：跨会话记忆存储（用户偏好 / 项目上下文 / 自动学习）与 systemPrompt 注入",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
@@ -21,6 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "test": "vitest run"
   },
   "devDependencies": {

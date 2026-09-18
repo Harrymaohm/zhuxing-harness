@@ -1,10 +1,10 @@
 {
-  "latestVersion": "0.3.8",
+  "latestVersion": "0.4.0",
   "channel": "stable",
-  "publishedAt": "2026-08-31T10:51:53.802Z",
-  "updateFile": "harness-update-0.3.8.zip",
-  "sha256": "886743dbe7373946c7dbafa08b04e1b3f6426b3896bc54386817aac292a23e98",
-  "size": 1164168,
-  "releaseNotes": "",
-  "minVersion": "0.3.8"
+  "publishedAt": "2026-09-18T06:59:06.394Z",
+  "updateFile": "harness-update-0.4.0.zip",
+  "sha256": "8588b15eaaffd854fe67b75d31a98633817072f68f3ecb44e437a30809592a5c",
+  "size": 1470556,
+  "releaseNotes": "接入 MCP 客户端（stdio、双协议版本协商，可直接使用 MCP 生态工具）；技能兼容 Agent Skills 的 SKILL.md；插件权限清单与 ed25519 签名校验；OTel GenAI 遥测（默认关闭）；工具结果凭据改为无条件脱敏",
+  "minVersion": "0.4.0"
 }

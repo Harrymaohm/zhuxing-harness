@@ -1,6 +1,6 @@
 {
   "name": "@zhuxing/harness-web",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "筑星 Harness Web UI：对话 / 工作 / 交付一整套流程（HTTP + SSE 后端 + React 前端）",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
@@ -27,7 +27,8 @@
     "build:ui": "vite build --config ui/vite.config.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ui/tsconfig.json --noEmit",
-    "test": "vitest run"
+    "typecheck:tests": "tsc -p tsconfig.test.json && tsc -p ui/tsconfig.test.json",
+    "test": "vitest run --coverage"
   },
   "dependencies": {
     "@zhuxing/harness-agent": "workspace:^",
@@ -44,12 +45,18 @@
     "adm-zip": "^0.6.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/adm-zip": "^0.5.8",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.3.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "axe-core": "^4.13.0",
+    "jsdom": "^30.0.1",
     "mammoth": "^1.12.1",
     "pptx-wasm": "^0.3.0",
     "react": "^18.3.0",

@@ -1,9 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, afterEach } from 'vitest'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { FileMemoryStore } from '../src/file-store.js'
-import { buildMemoryPrompt } from '../src/enhancer.js'
+import { buildMemoryPrompt, buildSessionMemoryPrompt } from '../src/enhancer.js'
 
 let path: string
 let counter = 0
@@ -79,5 +79,31 @@ describe('buildMemoryPrompt', () => {
     const result = await enhancer('base', 'input')
     expect(result.length).toBeLessThan(4500) // base + 4KB + 少量格式
     expect(result).toContain('# Memory')
+  })
+})
+
+describe('buildSessionMemoryPrompt', () => {
+  afterEach(() => {
+    try {
+      rmSync(path, { force: true })
+    } catch {
+      // ignore
+    }
+  })
+
+  it('只注入指定会话的记忆，并可用 excludeTags 排除', async () => {
+    path = join(tmpdir(), `harness-session-enh-test-${Date.now()}-${counter++}.json`)
+    const store = new FileMemoryStore(path)
+    const enhancer = buildSessionMemoryPrompt(store, 'session-a', { excludeTags: ['delivery-brief'] })
+
+    await store.add({ scope: 'session', sessionId: 'session-a', content: '交付简报', tags: ['delivery-brief'] })
+    await store.add({ scope: 'session', sessionId: 'session-a', content: '普通记忆', tags: ['fact'] })
+    await store.add({ scope: 'session', sessionId: 'session-b', content: '其它会话记忆' })
+
+    const result = await enhancer('base', 'input')
+    expect(result).toContain('# Referenced Conversation Memory')
+    expect(result).toContain('普通记忆')
+    expect(result).not.toContain('交付简报')
+    expect(result).not.toContain('其它会话记忆')
   })
 })

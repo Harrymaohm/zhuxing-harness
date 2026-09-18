@@ -1,0 +1,47 @@
+{
+  "name": "@zhuxing/harness-runtime",
+  "version": "0.4.0",
+  "description": "筑星 Harness 常驻运行时内核：构建可热更新的 RuntimeResources（app/agent/tools/memory/skills…），供 Web 外壳动态加载",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@zhuxing/harness-agent": "workspace:^",
+    "@zhuxing/harness-bundle": "workspace:^",
+    "@zhuxing/harness-kernel": "workspace:^",
+    "@zhuxing/harness-knowledge": "workspace:^",
+    "@zhuxing/harness-memory": "workspace:^",
+    "@zhuxing/harness-model-router": "workspace:^",
+    "@zhuxing/harness-sandbox": "workspace:^",
+    "@zhuxing/harness-session": "workspace:^",
+    "@zhuxing/harness-skills": "workspace:^",
+    "@zhuxing/harness-specs": "workspace:^",
+    "@zhuxing/harness-tools": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -70,6 +70,106 @@ describe('Agent 循环', () => {
     expect(provider.calls).toBe(0)
   })
 
+  it('工具参数不是合法 JSON 时不执行该工具，把错误回注给模型', async () => {
+    const tools = new ToolRegistryImpl()
+    let executed = 0
+    tools.register({
+      name: 'write_file',
+      description: '写文件',
+      schema: { type: 'object', properties: { path: { type: 'string' } } },
+      execute: () => {
+        executed += 1
+        return { text: '已写入' }
+      },
+    })
+
+    const store = new MemorySessionStore()
+    const session = new SessionImpl(store, await store.createSession())
+    const provider = makeFakeProvider([
+      {
+        content: '',
+        // 截断的 JSON：参数不可解析
+        toolCalls: [{ id: 'c1', name: 'write_file', arguments: '{"path": "a.ts"' }],
+        finishReason: 'tool_calls',
+      },
+      { content: '我修正参数后重试', toolCalls: [], finishReason: 'stop' },
+    ])
+
+    const loop = new AgentLoop({ llm: provider, tools, session })
+    const result = await loop.run('写个文件')
+
+    // 关键行为：宁可这一轮失败，也不能带着被静默置空的参数去执行写操作
+    expect(executed).toBe(0)
+    expect(result.finishedReason).toBe('stop')
+
+    // 错误必须回注给模型（role: tool），模型才有机会自我修正
+    const events = await session.events()
+    const toolEvent = events.find((e) => e.type === 'tool')
+    expect((toolEvent?.payload as { result: { error?: string } }).result.error).toContain('不是合法 JSON')
+    const fedBack = events.filter((e) => e.type === 'tool').length
+    expect(fedBack).toBe(1)
+  })
+
+  it('工具结果里的裸凭据形态值无条件脱敏（不依赖工具名/参数线索）', async () => {
+    // 背景：脱敏原先只在「工具名/参数/结果里出现凭据关键词」时才执行。
+    // 实测反例：MCP 工具（名称与参数都不含关键词）返回一个裸 sk- 令牌，会明文进 append-only 会话日志。
+    // 这条出口必须无条件兜底——形态识别代价极低，而漏一次就是永久落盘。
+    const tools = new ToolRegistryImpl()
+    tools.register({
+      name: 'fetch_meta',
+      description: '取元信息',
+      schema: { type: 'object', properties: {} },
+      execute: () => ({ text: 'raw=sk-abcdef1234567890' }),
+    })
+    tools.register({
+      name: 'fetch_meta_json',
+      description: '取元信息（结构化）',
+      schema: { type: 'object', properties: {} },
+      execute: () => ({ json: { nested: { token: 'sk-abcdef1234567890' } } }),
+    })
+
+    const store = new MemorySessionStore()
+    const session = new SessionImpl(store, await store.createSession())
+    const provider = makeFakeProvider([
+      {
+        content: '',
+        toolCalls: [
+          { id: 'c1', name: 'fetch_meta', arguments: '{}' },
+          { id: 'c2', name: 'fetch_meta_json', arguments: '{}' },
+        ],
+        finishReason: 'tool_calls',
+      },
+      { content: '完成', toolCalls: [], finishReason: 'stop' },
+    ])
+    const loop = new AgentLoop({ llm: provider, tools, session })
+    await loop.run('取一下元信息')
+
+    const logged = JSON.stringify((await session.events()).filter((e) => e.type === 'tool').map((e) => e.payload))
+    expect(logged).not.toContain('sk-abcdef1234567890')
+    // 上下文必须保留：证明是「脱敏」而不是把工具结果整个丢掉（丢结果会破坏 agent 的可用性）
+    expect(logged).toContain('raw=')
+    // 结构化结果在未检出机密时必须保持 json 形状（不被无谓地降级成文本）
+    const noSecretTools = new ToolRegistryImpl()
+    noSecretTools.register({
+      name: 'plain_json',
+      description: '普通结构化结果',
+      schema: { type: 'object', properties: {} },
+      execute: () => ({ json: { ok: true } }),
+    })
+    const session2 = new SessionImpl(store, await store.createSession())
+    const loop2 = new AgentLoop({
+      llm: makeFakeProvider([
+        { content: '', toolCalls: [{ id: 'c1', name: 'plain_json', arguments: '{}' }], finishReason: 'tool_calls' },
+        { content: '完成', toolCalls: [], finishReason: 'stop' },
+      ]),
+      tools: noSecretTools,
+      session: session2,
+    })
+    await loop2.run('取普通结果')
+    const plain = (await session2.events()).find((e) => e.type === 'tool')
+    expect((plain?.payload as { result: { json?: unknown } }).result.json).toEqual({ ok: true })
+  })
+
   it('max-steps 达到上限结束', async () => {
     const store = new MemorySessionStore()
     const session = new SessionImpl(store, await store.createSession())

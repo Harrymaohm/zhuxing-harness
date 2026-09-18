@@ -23,13 +23,69 @@ export class FileSessionStore implements SessionStore {
     return join(this.dir, 'spaces.json')
   }
 
-  private async readSpaces(): Promise<SpaceMeta[]> {
+  /** spaces.json 的读-改-写串行化队列（理由见 serializeSpaces）。 */
+  private spacesQueue: Promise<unknown> = Promise.resolve()
+
+  /**
+   * 把 spaces.json 的「读全量 → 改 → 写全量」串行化。
+   *
+   * createSpace / renameSpace / removeSpace 都是整文件读改写，无序列化时两个并发请求
+   * （同一 Web 进程里同时到达两个 HTTP 请求很常见）会各自读到同一份旧快照、再互相覆盖，
+   * 表现为「刚建的空间/刚改的名字莫名消失」。这里用一条 promise 链排队：
+   * 进程内不再交叉，且落盘顺序与调用顺序一致。
+   *
+   * 跨进程（CLI 与 Web 同时改同一目录）仍无保护——那需要文件锁，超出当前实现范围。
+   */
+  private serializeSpaces<T>(fn: () => Promise<T>): Promise<T> {
+    // 前一个任务无论成功失败都要继续排队（失败用自身兜底，避免一次写失败卡死整条队列）
+    const next = this.spacesQueue.then(fn, fn)
+    this.spacesQueue = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
+  }
+
+  /**
+   * 读一个 JSON 文件的容错语义（与 memory/file-store.ts 遵守同一契约）：
+   * - 文件不存在 / 不可读 → undefined，这是正常的「还没有」
+   * - 内容不是合法 JSON → **备份原文件 + 告警**后返回 undefined
+   *
+   * 为什么不能像以前那样静默返回空：元数据与空间清单都是「读全量 → 改 → 写全量」，
+   * 一次解析失败被吞掉，下一次写入就会把损坏内容永久覆盖。用户视角是「标题/归属/空间
+   * 凭空消失」且毫无线索；备份至少留下人工恢复的可能。
+   */
+  private async readJsonTolerant<T>(file: string, what: string): Promise<T | undefined> {
+    let raw: string
     try {
-      const raw = await readFile(this.spacesFile(), 'utf-8')
-      return JSON.parse(raw) as SpaceMeta[]
+      // 去掉 UTF-8 BOM：记事本等编辑器保存的 JSON 常带 BOM，会让 JSON.parse 直接抛错
+      raw = (await readFile(file, 'utf-8')).replace(/^\uFEFF/, '').trim()
     } catch {
-      return []
+      return undefined
     }
+    if (!raw) return undefined
+    try {
+      return JSON.parse(raw) as T
+    } catch (err) {
+      // 固定文件名而不是带时间戳：损坏文件在无人修复前会被反复读取（listSpaces 每次都会读），
+      // 带时间戳会在每次读取时新落一个备份、无界增长。固定名让备份有界（只保留最新一份原始内容），
+      // 而内容本来就来自同一个未被改动的坏文件，覆盖它不会丢失任何信息。
+      const backup = `${file}.corrupt`
+      try {
+        await writeFile(backup, raw, 'utf-8')
+      } catch {
+        // 备份失败不阻断主流程，告警里仍带上原路径
+      }
+      console.warn(
+        `[harness] ${what}解析失败，已按空值继续（原文件备份至 ${backup}）：${file} —— ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      )
+      return undefined
+    }
+  }
+
+  private async readSpaces(): Promise<SpaceMeta[]> {
+    return (await this.readJsonTolerant<SpaceMeta[]>(this.spacesFile(), '空间清单')) ?? []
   }
 
   private async writeSpaces(spaces: SpaceMeta[]): Promise<void> {
@@ -43,24 +99,36 @@ export class FileSessionStore implements SessionStore {
   }
 
   async list(sessionId: string): Promise<SessionEvent[]> {
+    let content: string
     try {
-      const content = await readFile(this.file(sessionId), 'utf-8')
-      return content
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as SessionEvent)
+      content = await readFile(this.file(sessionId), 'utf-8')
     } catch {
+      // 文件不存在：还没有任何事件，属正常状态
       return []
     }
+    // 逐行解析：JSONL 的价值就在于「坏行只坏一行」——此前一处解析失败会让整个会话
+    // 在界面上凭空消失（返回空数组），而且没有任何痕迹。现在坏行单独跳过并计数告警，
+    // 其余历史照常可读。
+    const events: SessionEvent[] = []
+    let broken = 0
+    for (const line of content.split('\n')) {
+      if (!line) continue
+      try {
+        events.push(JSON.parse(line) as SessionEvent)
+      } catch {
+        broken += 1
+      }
+    }
+    if (broken > 0) {
+      console.warn(
+        `[harness] 会话 ${sessionId} 有 ${broken} 行事件无法解析，已跳过（其余 ${events.length} 条正常读取）：${this.file(sessionId)}`,
+      )
+    }
+    return events
   }
 
   async getMeta(sessionId: string): Promise<SessionMeta | undefined> {
-    try {
-      const raw = await readFile(this.metaFile(sessionId), 'utf-8')
-      return JSON.parse(raw) as SessionMeta
-    } catch {
-      return undefined
-    }
+    return this.readJsonTolerant<SessionMeta>(this.metaFile(sessionId), '会话元数据')
   }
 
   async setMeta(meta: SessionMeta): Promise<void> {
@@ -185,12 +253,14 @@ export class FileSessionStore implements SessionStore {
   }
 
   async createSpace(title: string): Promise<SpaceMeta> {
-    const spaces = await this.readSpaces()
-    const now = Date.now()
-    const space: SpaceMeta = { id: randomUUID(), title: title.trim() || '未命名项目', createdAt: now, updatedAt: now }
-    spaces.push(space)
-    await this.writeSpaces(spaces)
-    return space
+    return this.serializeSpaces(async () => {
+      const spaces = await this.readSpaces()
+      const now = Date.now()
+      const space: SpaceMeta = { id: randomUUID(), title: title.trim() || '未命名项目', createdAt: now, updatedAt: now }
+      spaces.push(space)
+      await this.writeSpaces(spaces)
+      return space
+    })
   }
 
   async listSpaces(): Promise<SpaceMeta[]> {
@@ -203,18 +273,22 @@ export class FileSessionStore implements SessionStore {
   }
 
   async renameSpace(spaceId: string, title: string): Promise<void> {
-    const spaces = await this.readSpaces()
-    const target = spaces.find((s) => s.id === spaceId)
-    if (!target) return
-    target.title = title.trim() || '未命名项目'
-    target.updatedAt = Date.now()
-    await this.writeSpaces(spaces)
+    await this.serializeSpaces(async () => {
+      const spaces = await this.readSpaces()
+      const target = spaces.find((s) => s.id === spaceId)
+      if (!target) return
+      target.title = title.trim() || '未命名项目'
+      target.updatedAt = Date.now()
+      await this.writeSpaces(spaces)
+    })
   }
 
   /** 删除空间及其下属全部会话（含归档）。 */
   async removeSpace(spaceId: string): Promise<void> {
-    const spaces = await this.readSpaces()
-    await this.writeSpaces(spaces.filter((s) => s.id !== spaceId))
+    await this.serializeSpaces(async () => {
+      const spaces = await this.readSpaces()
+      await this.writeSpaces(spaces.filter((s) => s.id !== spaceId))
+    })
     const sessions = await this.listSessionsWithMeta()
     for (const { id, meta } of sessions) {
       if (meta?.spaceId === spaceId) await this.remove(id)

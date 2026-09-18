@@ -3,6 +3,7 @@ export { ModelMonitorImpl } from './monitor.js'
 export { ModelSelectorImpl, taskTextFromMessages } from './selector.js'
 export { ModelRouterImpl } from './router.js'
 export { ModelOrchestratorImpl } from './orchestrator.js'
+export { parseModelsConfig } from './config.js'
 export type {
   ModelCapability,
   ModelSpec,

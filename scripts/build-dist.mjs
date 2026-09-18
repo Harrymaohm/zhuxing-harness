@@ -50,6 +50,7 @@ function need(path, hint) {
 function main() {
   // 1. 前置产物校验
   need(join(ROOT, 'dist-bin', 'harness.cjs'), 'pnpm build && pnpm bundle')
+  need(join(ROOT, 'dist-bin', 'kernel.mjs'), 'pnpm build && pnpm bundle')
   need(join(ROOT, 'packages', 'web', 'dist-ui', 'index.html'), 'pnpm --filter @zhuxing/harness-web build:ui')
   need(join(ROOT, 'kk6zc-wyj96-001.ico'), '准备软件图标 kk6zc-wyj96-001.ico')
   need(join(TOOLS, 'node', 'node-v22.14.0-win-x64', 'node.exe'), '下载便携 Node 到 tools/')
@@ -73,6 +74,10 @@ function main() {
   // 4. 单文件 CLI
   copyFileSync(join(ROOT, 'dist-bin', 'harness.cjs'), join(APP, 'bin', 'harness.cjs'))
   console.log('✓ bin/harness.cjs')
+
+  // 4.5 内核模块（外壳动态 import 的可热更新单元）
+  copyFileSync(join(ROOT, 'dist-bin', 'kernel.mjs'), join(APP, 'bin', 'kernel.mjs'))
+  console.log('✓ bin/kernel.mjs')
 
   // 5. Web UI 静态资源
   copyDir(join(ROOT, 'packages', 'web', 'dist-ui'), join(APP, 'web', 'dist-ui'))

@@ -1,0 +1,48 @@
+# 筑星 Harness 桌面客户端打包配置（计划书 P1 / G1）
+# 布局约定（与 src/main.cjs 的 packed 分支一一对应，零代码改动）：
+#   resources/app.asar          桌面外壳（main.cjs）
+#   resources/app/node/node.exe     便携 Node 运行时
+#   resources/app/bin/harness.cjs   单文件 CLI（后端）
+#   resources/app/web/dist-ui       Web UI 静态资源
+# 前置：node scripts/build-dist.mjs（组装 dist-install/app）
+appId: com.zhuxing.harness.desktop
+productName: 筑星 Harness
+copyright: Zhuxing
+# 发布由仓库自身的 build-update 链负责；build:installer 脚本用 --publish never 关闭隐式发布
+
+directories:
+  output: dist-installer
+  buildResources: build
+
+# 外壳进 app.asar；Electron 优先加载 app.asar，旁边的 app/ 目录专放后端载荷。
+# 载荷不走 extraResources —— 它的默认收集器会剥掉 node_modules（esbuild 运行时依赖被丢），
+# 改由 afterPack 钩子原样复制，保持可执行文件与真实目录形态。
+files:
+  - src/**
+  - package.json
+
+afterPack: scripts/after-pack.cjs
+
+win:
+  target:
+    - nsis
+  icon: build/icon.ico
+  artifactName: zhuxing-harness-desktop-${version}-win.${ext}
+
+nsis:
+  # 与 CLI 版安装器一致：免管理员、装进当前用户目录
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 筑星 Harness
+  installerLanguages:
+    - zh_CN
+  license: ../../LICENSE
+  artifactName: zhuxing-harness-desktop-setup-${version}.${ext}
+
+# 安装包通道与增量包通道分轨：
+# electron-builder 只管 Electron 外壳 + resources/app 的首发形态；
+# 日常代码/UI 更新走 harness-update-*.zip（updater.ts），不触碰 Electron 运行时；
+# manifest.installer 块声明桌面端重装要求（见 scripts/build-update.mjs）。

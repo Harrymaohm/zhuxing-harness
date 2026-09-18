@@ -1,0 +1,41 @@
+{
+  "id": "smoke-bugfix-off-by-one",
+  "taskType": "bug_fix",
+  "title": "修复 sumRange 的 off-by-one",
+  "task": "修复工作区里 math.mjs 的区间错误：sumRange 当前漏掉末项，sumRange(5) 返回 10 而不是 15。只改这一个函数，不要动 clamp。",
+  "severity": "P1",
+  "tags": ["smoke", "bug_fix"],
+  "repository": {
+    "mode": "fixture",
+    "fixture": "./fixtures/bugfix-off-by-one"
+  },
+  "constraints": {
+    "maxSteps": 10,
+    "maxWallMs": 120000,
+    "allowedPaths": ["math.mjs"]
+  },
+  "verification": {
+    "runner": "tap",
+    "command": "node --test --test-reporter=tap math.test.mjs",
+    "failToPass": ["sumRange 累加闭区间 1..n"],
+    "passToPass": ["clamp 夹取到上下界"]
+  },
+  "scoring": ["outcome", "process", "compliance", "cost"],
+  "mock": {
+    "plan": [
+      {
+        "content": "读代码定位：sumRange 的循环上界写成 `< n`，闭区间应为 `<= n`。",
+        "toolCalls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "math.mjs",
+              "content": "/**\n * 演示模块：区间求和与数值夹取。\n */\n\n/** 求 1..n 的和（闭区间）。 */\nexport function sumRange(n) {\n  let total = 0\n  for (let i = 1; i <= n; i += 1) total += i\n  return total\n}\n\n/** 把 value 夹取到 [lo, hi]。本函数无缺陷，用于 PASS_TO_PASS 对照。 */\nexport function clamp(value, lo, hi) {\n  if (value < lo) return lo\n  if (value > hi) return hi\n  return value\n}\n"
+            }
+          }
+        ]
+      },
+      { "content": "已把循环上界改为闭区间，sumRange(5) 现在返回 15。" }
+    ]
+  }
+}

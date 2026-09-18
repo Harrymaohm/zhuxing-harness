@@ -28,6 +28,22 @@ describe('实时性能监控', () => {
     expect(m.estCost).toBeCloseTo(1)
   })
 
+  it('聚合前缀缓存命中率', () => {
+    const monitor = new ModelMonitorImpl()
+    monitor.record({ ...call('a', true, 100), cacheHitTokens: 700, cacheMissTokens: 300 })
+    monitor.record({ ...call('a', true, 100), cacheHitTokens: 100, cacheMissTokens: 100 })
+    const m = monitor.metrics('a')
+    expect(m.totalCacheHitTokens).toBe(800)
+    expect(m.totalCacheMissTokens).toBe(400)
+    expect(m.cacheHitRate).toBeCloseTo(2 / 3)
+  })
+
+  it('无 usage 上报时命中率为 0', () => {
+    const monitor = new ModelMonitorImpl()
+    monitor.record(call('a', true, 100))
+    expect(monitor.metrics('a').cacheHitRate).toBe(0)
+  })
+
   it('p95 取排序后 95 分位', () => {
     const monitor = new ModelMonitorImpl()
     for (let i = 1; i <= 20; i++) monitor.record(call('a', true, i * 10))

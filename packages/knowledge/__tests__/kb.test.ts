@@ -1,15 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync } from 'node:fs'
 import {
   chunkText,
   extractText,
   FileKnowledgeStore,
   createKnowledgeBase,
   createRetriever,
-  buildKnowledgePrompt,
 } from '../src/index.js'
 
 const root = dirname(fileURLToPath(import.meta.url))

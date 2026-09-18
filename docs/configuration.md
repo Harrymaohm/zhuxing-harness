@@ -87,3 +87,46 @@ For stricter, command-level control: `deniedCommands` / `allowedCommands` polici
 
 - Endpoint: `https://api.deepseek.com/v1` (any OpenAI-compatible endpoint can be attached via `--base-url` / `config.baseUrl`)
 - Models: `deepseek-v4-flash` / `deepseek-v4-pro` (DeepSeek); OpenAI, OpenRouter, local vLLM, etc. can also be attached
+
+## Telemetry (OpenTelemetry, off by default)
+
+Only enabled once an export endpoint is configured — with no endpoint the plugin registers no listeners,
+starts no timers and makes **no network requests at all**:
+
+| Environment variable | Purpose |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Signal endpoint, used as-is (e.g. `http://collector:4318/v1/traces`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base endpoint, `/v1/traces` is appended (lower priority than the above) |
+| `OTEL_SERVICE_NAME` | Resource `service.name`, defaults to `zhuxing-harness` |
+| `OTEL_GENAI_CAPTURE_CONTENT` | Set to `1` to capture prompts/replies/tool arguments and results (not captured by default) |
+
+Export follows the OpenTelemetry GenAI semantic conventions (currently Development, attribute names may
+evolve); tool execution is exported as `execute_tool <tool name>` spans, batched over OTLP/JSON and flushed
+when the plugin is disposed. Export failures are only counted and logged with rate limiting — they never
+affect task execution. Note that `OTEL_GENAI_CAPTURE_CONTENT=1` sends user content (credential-redacted)
+to that collector.
+
+## MCP servers (stdio, optional)
+
+Add `mcpServers` to the user config (`~/.zhuxing-harness/config.json`). The shape matches Claude Desktop /
+Cursor, so configs can be pasted as-is:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
+      "env": { "KEY": "value" },
+      "cwd": "/optional/workdir"
+    }
+  }
+}
+```
+
+- **stdio only** (`command` / `args` / `env` / `cwd`); entries with `url` or `type: http|sse` are warned about and skipped
+- `command` is required and non-empty; the server name must not contain `__` (it would clash with `mcp__<server>__<tool>`); invalid entries are **warned about and skipped one by one** without affecting other servers or harness startup
+- Optional overrides: `timeoutMs` (all three phases), `initTimeoutMs`, `listTimeoutMs`, `callTimeoutMs`; per-result cap `resultMaxBytes` (64KB default, truncated with a notice)
+- Tools are registered as `mcp__<server>__<tool>` (the MCP `inputSchema` is used verbatim as the tool schema); servers that fail to connect or negotiate an unsupported version **register no tools**
+- Protocol: dual-version negotiation — modern `2026-07-28` (`server/discover` probe + per-request `_meta` carrying version and capabilities) and legacy `2025-06-18` (`initialize` handshake + `notifications/initialized`); any other version from the server causes a **disconnect**; the client declares empty capabilities (no roots / sampling / elicitation)
+- Risks (read this): see [Security model · MCP servers](security.md) — attaching merges third-party capabilities into your agent, and the path sandbox cannot constrain files it touches inside its external process

@@ -27,11 +27,34 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Lint
+        # 正确性规则（含 react-hooks）；这是 scripts/、packages/desktop/*.cjs、评测工具这些
+        # 不在 tsc 编译范围内的文件唯一的静态检查入口，所以放在 build 之前先跑。
+        run: pnpm lint
+
+      - name: Secret scan
+        # 计划书 §2 承诺「/api/health、日志、更新包内 0 明文 key；CI 扫描 0 命中」——
+        # 这道门禁就是那句话的执行体。用 secretlint（无需 license，本地 `pnpm scan:secrets`
+        # 与 CI 同一条命令）而不是 gitleaks-action：后者对组织仓库需要 license，
+        # 一旦缺失会直接把 CI 弄红，属于「门禁自身不可靠」。
+        run: pnpm scan:secrets
+
+      - name: Licenses
+        # 第三方依赖与许可证声明（licenses/）必须与实际依赖一致：本项目自身是闭源双许可，
+        # 分发时履行第三方「保留声明」义务全靠这份声明，而过期的声明比没有更糟。
+        # 依赖有增删或升降级时需 `pnpm licenses:generate` 并提交。
+        run: pnpm licenses:check
+
       - name: Build
         run: pnpm -r build
 
-      - name: Typecheck
-        run: pnpm typecheck
+      - name: Typecheck (UI + tests)
+        # `pnpm -r build` 已经对全部包做过完整类型检查（tsc 在 emit 阶段报错即失败），
+        # 这里补的是 build 覆盖不到的两块：
+        #   1. web 的 ui/tsconfig.json（前端源码）
+        #   2. 各包 __tests__ 目录 —— 它们不在 tsconfig 的 include 里，此前完全没有类型检查，
+        #      测试自己失去编译期保护等于门禁悄悄失效。本地 `pnpm check` 走同一条口径。
+        run: pnpm typecheck:tests && pnpm typecheck:ui
 
       - name: Unit & integration tests
         run: pnpm -r test
@@ -41,3 +64,99 @@ jobs:
 
       - name: Bundle CLI (single-file binary)
         run: pnpm bundle
+
+  e2e-ui:
+    # 界面级端到端（计划案 P2-1 五条主流程）：真实 Web 服务 + 真实前端产物 + 本地流式 mock 上游，
+    # 因此零 token 成本、结论可复算，可以在 PR 上无条件执行。
+    # 浏览器用 Playwright 自带 Chromium（由 `playwright install --with-deps chromium` 安装）；
+    # 特意不设 PLAYWRIGHT_CHANNEL：本地若没有自带浏览器，用 PLAYWRIGHT_CHANNEL=msedge 走系统 Edge
+    # （见根 package.json 的 `test:e2e:ui:win`），CI 上不需要也不应该有这个变量。
+    needs: quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm -r build` 同时产出 Web 服务（packages/web/dist/server.js）与内核模块（dist-bin/kernel.mjs），
+      # 两者都是 E2E 启动脚本的硬依赖。
+      - name: Build
+        run: pnpm -r build
+
+      - name: Build Web UI
+        run: pnpm -C packages/web build:ui
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E UI tests
+        run: pnpm test:e2e:ui
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: coverage/playwright/
+          if-no-files-found: warn
+
+  harness-eval:
+    # 评测层门禁：回答的是「这次改动有没有让 Agent 整体变差」，而不是「代码能不能编译」。
+    # 三层都不接真实模型：上游由本地 mock 端点/遥测代理替代，因此零 token 成本、
+    # 结论可复算，并且可以在 PR 上无条件执行。
+    needs: quality
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 隔离机制（git worktree / fixture + 路径边界）与平台强相关，两个平台都要跑
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r build
+
+      # 层 0：评测工具自身的单测。判定口径（F2P/P2P 匹配、unknown 不伪装成合格、
+      # 未定价金额为 null）一旦被改坏，评测会安静地给出错误结论，必须当场红灯。
+      - name: Eval harness unit tests
+        run: pnpm test:eval
+
+      # 层 1：八边界确定性层 —— 真实 harness 组件 + mock 外部系统，ASR=0 / 八边界全 Proven
+      - name: Boundary layer (deterministic)
+        run: pnpm eval:boundaries
+
+      # 层 2：任务层 —— 真实 CLI + 隔离工作区 + 网络层遥测，F2P/P2P + 三维评估 + 评分卡
+      - name: Task layer (mock model)
+        run: pnpm eval:tasks
+
+      - name: Upload evaluation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-eval-${{ matrix.os }}
+          path: |
+            agent_harness_eval/out-tasks/report/**
+            agent_harness_eval/out/report.json
+            agent_harness_eval/out/report.md
+          if-no-files-found: warn

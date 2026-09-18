@@ -1,0 +1,10 @@
+{
+  "currency": "CNY",
+  "unit": 1000000,
+  "source": "计划案 4.2 成本遥测：金额 =（计费输入 × input + 缓存命中 × cacheRead + 输出 × output）÷ unit，unit 表示每 100 万 token。",
+  "asOf": "2026-09-16",
+  "note": "被测 CLI 的默认模型名是 deepseek-v4-flash（见 packages/cli/src/cli.ts）。费率表未列出的模型在报告里显示为「未计价」，绝不用 0 元冒充免费。",
+  "models": {
+    "deepseek-v4-flash": { "input": 2, "output": 8, "cacheRead": 0.5 }
+  }
+}

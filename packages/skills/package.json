@@ -1,6 +1,6 @@
 {
   "name": "@zhuxing/harness-skills",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "筑星 Harness 技能系统：提示词模板 + 输入参数 + 可选工具子集 + 记忆绑定，可复用可分享的经验包",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
@@ -21,6 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "test": "vitest run"
   },
   "dependencies": {

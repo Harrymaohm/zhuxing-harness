@@ -45,7 +45,7 @@ describe('模型选择算法', () => {
   })
 
   it('性能指标影响排序：失败率高者降权', () => {
-    const { registry, monitor, selector } = setup()
+    const { monitor, selector } = setup()
     // 给 fast 造一堆失败
     for (let i = 0; i < 10; i++) {
       monitor.record({ modelId: 'fast', ok: false, latencyMs: 100, ts: Date.now() })

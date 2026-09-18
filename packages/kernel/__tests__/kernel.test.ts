@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createHarness } from '../src/app.js'
 import type { Context } from '../src/context.js'
 
@@ -77,7 +77,9 @@ describe('插件挂载/卸载', () => {
     await app.mount({
       name: 'after',
       apply(ctx) {
-        ctx.on('check', () => order.push('after'))
+        ctx.on('check', () => {
+          order.push('after')
+        })
       },
     })
     const result = await app.events.emit('check')
@@ -101,7 +103,9 @@ describe('插件挂载/卸载', () => {
       app.mount({
         name: 'boom',
         apply(ctx) {
-          ctx.effect(() => cleaned.push('clean'))
+          ctx.effect(() => {
+            cleaned.push('clean')
+          })
           throw new Error('apply 崩溃')
         },
       }),
@@ -159,6 +163,42 @@ describe('依赖注入与拓扑', () => {
     await app.dispose()
   })
 
+  it('pending 在超时前解析时，等待定时器必须被清掉', async () => {
+    // 用假定时器把「有没有残留定时器」变成确定可数的事实：getTimerCount() 只看假定时器，
+    // 不受 vitest 自身真实定时器与并发负载影响（真实定时器计数在高并发下基线会漂移）。
+    vi.useFakeTimers()
+    try {
+      const app = createHarness({ logLevel: 'warn' })
+      // 超时给到 10 分钟：解析后若不清，这个定时器会把事件循环占住 10 分钟
+      const consumerP = app.mount(
+        {
+          name: 'timer-consumer',
+          inject: ['timer-store'],
+          apply(ctx) {
+            ctx.inject('timer-store')
+          },
+        },
+        { timeoutMs: 600_000 },
+      )
+      expect(app.pluginManager.stateOf('timer-consumer')).toBe('pending')
+      expect(vi.getTimerCount()).toBe(1)
+
+      await app.mount({
+        name: 'timer-provider',
+        apply(ctx) {
+          ctx.provide('timer-store', 1)
+        },
+      })
+      await consumerP
+      expect(app.pluginManager.stateOf('timer-consumer')).toBe('mounted')
+      // 关键断言：依赖已就绪、插件已挂载，等待超时定时器不该再活着
+      expect(vi.getTimerCount()).toBe(0)
+      await app.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('缺失依赖的 pending 在关闭时被拒绝', async () => {
     const app = createHarness({ logLevel: 'warn' })
     const p = app.mount({ name: 'orphan', inject: ['never'], apply: () => undefined })
@@ -203,7 +243,9 @@ describe('热插拔', () => {
       inject: ['db'],
       apply(ctx) {
         ctx.inject('db')
-        ctx.effect(() => disposed.push('consumer'))
+        ctx.effect(() => {
+          disposed.push('consumer')
+        })
       },
     })
     await app.unmount('provider')
@@ -219,7 +261,9 @@ describe('热插拔', () => {
     const def = {
       name: 'hot',
       apply(ctx: Context) {
-        ctx.effect(() => logs.push('dispose'))
+        ctx.effect(() => {
+          logs.push('dispose')
+        })
         logs.push('apply')
       },
     }
@@ -229,23 +273,35 @@ describe('热插拔', () => {
     await app.dispose()
   })
 
-  it('in-flight 操作在卸载时被等待', async () => {
-    const app = createHarness({ logLevel: 'warn' })
-    let done = false
-    await app.mount({
-      name: 'busy',
-      apply(ctx) {
-        ctx.track(
-          new Promise<void>((resolve) => setTimeout(() => {
-            done = true
-            resolve()
-          }, 50)),
-        )
-      },
-    })
-    await app.unmount('busy')
-    expect(done).toBe(true)
-    await app.dispose()
+  it('in-flight 操作在卸载时被等待，且立即释放 5s 强断定时器', async () => {
+    vi.useFakeTimers()
+    try {
+      const app = createHarness({ logLevel: 'warn' })
+      let done = false
+      await app.mount({
+        name: 'busy',
+        apply(ctx) {
+          ctx.track(
+            new Promise<void>((resolve) => setTimeout(() => {
+              done = true
+              resolve()
+            }, 50)),
+          )
+        },
+      })
+      const unmountP = app.unmount('busy')
+      // 放行 in-flight 自己那个 50ms 定时器，但不推进到 5s——推进过去会把泄漏的强断定时器也烧掉，
+      // 那样断言就看不见泄漏了
+      await vi.advanceTimersByTimeAsync(50)
+      await unmountP
+      expect(done).toBe(true)
+      // 关键断言：in-flight 已落定，等待用的 5s 强断定时器必须同时被清掉，
+      // 否则它会继续占住事件循环 5s（CLI 表现为「任务跑完了进程还不退」）。
+      expect(vi.getTimerCount()).toBe(0)
+      await app.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('卸载后再通过 ctx 注册能力会报错（防 use-after-dispose）', async () => {

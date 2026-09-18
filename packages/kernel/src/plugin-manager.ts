@@ -10,6 +10,8 @@ interface PendingEntry {
   missing: Set<string>
   resolve: (record: PluginRecord) => void
   reject: (err: Error) => void
+  /** 等待依赖就绪的超时定时器句柄（条目结束时必须 clear，理由见 settlePending）。 */
+  timer?: NodeJS.Timeout
 }
 
 const MAX_IN_FLIGHT_WAIT_MS = 5000
@@ -26,6 +28,7 @@ export function normalizePlugin(def: unknown): PluginDefinition {
       inject: fn.inject,
       provides: fn.provides,
       config: fn.config,
+      permissions: fn.permissions,
       apply: fn.apply,
     }
   }
@@ -41,6 +44,7 @@ export function normalizePlugin(def: unknown): PluginDefinition {
       inject: obj.inject,
       provides: obj.provides,
       config: obj.config,
+      permissions: obj.permissions,
       apply: obj.apply,
     }
   }
@@ -80,19 +84,18 @@ export class PluginManagerImpl implements PluginManager {
     if (missing.size > 0) {
       // 依赖未就绪：进入 pending，等待服务注册
       const promise = new Promise<PluginRecord>((resolve, reject) => {
-        this.pending.set(def.name, { def, options, missing, resolve, reject })
+        const entry: PendingEntry = { def, options, missing, resolve, reject }
+        this.pending.set(def.name, entry)
         this.logger.debug(`[plugin] "${def.name}" 等待依赖就绪：${[...missing].join(', ')}`)
         if (options?.timeoutMs) {
-          setTimeout(() => {
-            const entry = this.pending.get(def.name)
-            if (entry) {
-              this.pending.delete(def.name)
-              reject(
+          entry.timer = setTimeout(() => {
+            this.settlePending(def.name, (e) => {
+              e.reject(
                 new Error(
                   `[harness] 插件 "${def.name}" 等待依赖超时（${options.timeoutMs}ms）：${[...missing].join(', ')}`,
                 ),
               )
-            }
+            })
           }, options.timeoutMs)
         }
       })
@@ -111,11 +114,7 @@ export class PluginManagerImpl implements PluginManager {
     const record = this.plugins.get(pluginId)
     if (!record) {
       // pending 中的插件直接移除
-      const pending = this.pending.get(pluginId)
-      if (pending) {
-        this.pending.delete(pluginId)
-        pending.reject(new Error(`[harness] 插件 "${pluginId}" 在依赖就绪前被卸载。`))
-      }
+      this.settlePending(pluginId, (e) => e.reject(new Error(`[harness] 插件 "${pluginId}" 在依赖就绪前被卸载。`)))
       return
     }
     if (record.state !== 'mounted') return
@@ -149,6 +148,21 @@ export class PluginManagerImpl implements PluginManager {
     return this.mount(def, { ...options, timeoutMs: options?.timeoutMs ?? 5000 })
   }
 
+  /**
+   * 结束一个 pending 条目：先从表里摘掉、清掉它的等待超时定时器，再交给调用方 resolve/reject。
+   *
+   * 为什么必须显式 clear：定时器一旦创建就会让 Node 事件循环保持存活。条目在超时前被正常解析时
+   * 从不清理，进程就会一直挂到超时到点为止——bundle 里有 timeoutMs=180s 的挂载，
+   * 表现为「任务早跑完了，CLI 还挂着几分钟不退出」。
+   */
+  private settlePending(id: string, done: (entry: PendingEntry) => void): void {
+    const entry = this.pending.get(id)
+    if (!entry) return
+    this.pending.delete(id)
+    if (entry.timer) clearTimeout(entry.timer)
+    done(entry)
+  }
+
   /** 服务注册后调用：解析等待中的插件。 */
   resolvePending(): void {
     if (this.pending.size === 0) return
@@ -158,8 +172,9 @@ export class PluginManagerImpl implements PluginManager {
       for (const [id, entry] of this.pending) {
         const stillMissing = [...entry.missing].filter((d) => !this.services.has(d))
         if (stillMissing.length === 0) {
-          this.pending.delete(id)
-          this.applyPlugin(entry.def, entry.options).then(entry.resolve).catch(entry.reject)
+          this.settlePending(id, (e) => {
+            this.applyPlugin(e.def, e.options).then(e.resolve).catch(e.reject)
+          })
           progressed = true
           break
         }
@@ -189,9 +204,8 @@ export class PluginManagerImpl implements PluginManager {
     for (const id of ids) {
       await this.unmount(id)
     }
-    for (const [id, entry] of this.pending) {
-      entry.reject(new Error(`[harness] 应用关闭，插件 "${id}" 未完成挂载。`))
-      this.pending.delete(id)
+    for (const id of [...this.pending.keys()]) {
+      this.settlePending(id, (e) => e.reject(new Error(`[harness] 应用关闭，插件 "${id}" 未完成挂载。`)))
     }
   }
 
@@ -237,11 +251,7 @@ export class PluginManagerImpl implements PluginManager {
       if (!visited.has(id)) dfs(id, [])
     }
     for (const id of cyclic) {
-      const entry = this.pending.get(id)
-      if (entry) {
-        this.pending.delete(id)
-        entry.reject(new Error(`[harness] 插件 "${id}" 存在循环依赖，已拒绝挂载。`))
-      }
+      this.settlePending(id, (e) => e.reject(new Error(`[harness] 插件 "${id}" 存在循环依赖，已拒绝挂载。`)))
     }
   }
 
@@ -253,6 +263,7 @@ export class PluginManagerImpl implements PluginManager {
       id,
       { ...(def.config?.default ?? {}), ...(options?.config ?? {}) },
       this.logger,
+      def.permissions,
     )
     const record: PluginRecord = {
       id,
@@ -260,6 +271,7 @@ export class PluginManagerImpl implements PluginManager {
       ctx,
       state: 'mounted',
       version: def.version,
+      permissions: def.permissions,
       mountedAt: Date.now() + this.mountCounter,
     }
     this.plugins.set(id, record)
@@ -268,7 +280,7 @@ export class PluginManagerImpl implements PluginManager {
     } catch (err) {
       await ctx.dispose()
       this.plugins.delete(id)
-      throw new Error(`[harness] 插件 "${id}" 挂载失败：${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`[harness] 插件 "${id}" 挂载失败：${err instanceof Error ? err.message : String(err)}`, { cause: err })
     }
     await this.app.events.emit('plugin/mounted', { id })
     return record

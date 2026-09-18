@@ -71,6 +71,21 @@ describe('统一模型交互接口（ModelRouter）', () => {
     await expect(router.chat([{ role: 'user', content: 'x' }], { fallback: true })).rejects.toThrow(/全部失败/)
   })
 
+  it('空答复视为失败并降级到次优模型', async () => {
+    const { registry, router } = setup()
+    registry.register({ id: 'empty', capabilities: ['fast'] }, fakeProvider(''))
+    registry.register({ id: 'good', capabilities: ['fast'] }, fakeProvider('GOOD'))
+    const auto = await router.chat([{ role: 'user', content: 'x' }], { hints: { task: '快速回答' } })
+    expect(auto.content).toBe('GOOD')
+  })
+
+  it('全部返回空答复时报错而非返回空内容', async () => {
+    const { registry, router } = setup()
+    registry.register({ id: 'e1', capabilities: ['fast'] }, fakeProvider(''))
+    registry.register({ id: 'e2', capabilities: ['fast'] }, fakeProvider(''))
+    await expect(router.chat([{ role: 'user', content: 'x' }])).rejects.toThrow(/全部失败/)
+  })
+
   it('无注册模型时报错', async () => {
     const { router } = setup()
     await expect(router.chat([{ role: 'user', content: 'x' }])).rejects.toThrow(/无可用子模型/)
@@ -87,6 +102,18 @@ describe('统一模型交互接口（ModelRouter）', () => {
     }
     expect(tokens).toEqual(['hi'])
     expect(done?.content).toBe('STREAM RESULT')
+  })
+
+  it('excludeModelIds 自动选择时剔除主模型自身', async () => {
+    const { registry, router } = setup()
+    registry.register({ id: 'default', capabilities: ['general'] }, fakeProvider('MAIN'))
+    registry.register({ id: 'worker', capabilities: ['general'] }, fakeProvider('WORK'))
+    const result = await router.chat([{ role: 'user', content: 'x' }], { excludeModelIds: ['default'] })
+    expect((result.raw as Record<string, unknown>).__modelId).toBe('worker')
+
+    // 显式指定被排除的 id 时不过滤（尊重用户意图）
+    const explicit = await router.chat([{ role: 'user', content: 'x' }], { modelId: 'default', excludeModelIds: ['default'] })
+    expect(explicit.content).toBe('MAIN')
   })
 })
 
@@ -110,6 +137,15 @@ describe('模型间通信协议（Orchestrator）', () => {
     expect(result.error).toMatch(/失败|down/)
   })
 
+  it('子模型空答复时委派返回 ok=false 而非空内容', async () => {
+    const { registry, orchestrator } = setup()
+    registry.register({ id: 'empty', capabilities: ['fast'] }, fakeProvider(''))
+    const result = await orchestrator.delegate({ task: '写一段简介' })
+    expect(result.ok).toBe(false)
+    expect(result.content).toBe('')
+    expect(result.error).toMatch(/空答复|全部失败/)
+  })
+
   it('listModels 返回模型与实时指标', async () => {
     const { registry, monitor, orchestrator } = setup()
     registry.register({ id: 'm' }, fakeProvider('x'))
@@ -119,5 +155,31 @@ describe('模型间通信协议（Orchestrator）', () => {
     expect(list[0].id).toBe('m')
     expect(list[0].metrics.calls).toBe(1)
     expect(list[0].metrics.successRate).toBe(1)
+  })
+
+  it('仅注册主模型时自动委派返回 ok=false 与配置指引', async () => {
+    const { registry, orchestrator } = setup()
+    registry.register({ id: 'default', capabilities: ['general'] }, fakeProvider('MAIN'))
+    const result = await orchestrator.delegate({ task: '随便做点什么' })
+    expect(result.ok).toBe(false)
+    expect(result.modelId).toBe('none')
+    expect(result.error).toMatch(/没有可用的子模型/)
+  })
+
+  it('自动委派不会选到主模型自身', async () => {
+    const { registry, orchestrator } = setup()
+    registry.register({ id: 'default', capabilities: ['general'] }, fakeProvider('MAIN'))
+    registry.register({ id: 'worker', capabilities: ['code'] }, fakeProvider('WORK'))
+    const result = await orchestrator.delegate({ task: '写一段代码' })
+    expect(result.ok).toBe(true)
+    expect(result.modelId).toBe('worker')
+  })
+
+  it('显式指定 default 委派到主模型（尊重用户意图）', async () => {
+    const { registry, orchestrator } = setup()
+    registry.register({ id: 'default', capabilities: ['general'] }, fakeProvider('MAIN'))
+    const result = await orchestrator.delegate({ task: 'x', hints: { modelId: 'default' } })
+    expect(result.ok).toBe(true)
+    expect(result.content).toBe('MAIN')
   })
 })

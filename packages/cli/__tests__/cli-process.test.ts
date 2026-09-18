@@ -66,7 +66,7 @@ describe('CLI 进程级冒烟', () => {
   })
 
   it('doctor 输出检查项与结论', () => {
-    let out = ''
+    let out: string
     try {
       out = run(['doctor'], { HARNESS_CONFIG: join(tmpDir, 'doc.json'), HARNESS_SESSION_DIR: join(tmpDir, 'sess') })
     } catch (err) {

@@ -1,5 +1,5 @@
 import { EventBus } from './events.js'
-import type { Disposer, EventListener, Logger, PluginState, ServiceRecord } from './types.js'
+import type { Disposer, EventListener, Logger, PluginPermissions, PluginScopedService, PluginState, ServiceRecord } from './types.js'
 
 /** 插件上下文：插件与内核交互的唯一入口。 */
 export interface Context {
@@ -77,6 +77,8 @@ export interface PluginRecord {
   ctx: Context
   state: PluginState
   version?: string
+  /** 插件声明的资源需求（治理/审计用，不是进程隔离；见 PluginPermissions）。 */
+  permissions?: PluginPermissions
   mountedAt: number
 }
 
@@ -86,6 +88,8 @@ export class ContextImpl implements Context {
   readonly pluginId: string
   readonly config: Readonly<Record<string, unknown>>
   readonly logger: Logger
+  /** 本插件声明的资源需求（用于 inject 时绑定到 PluginScopedService，见 types.ts 的能力边界说明）。 */
+  readonly permissions?: PluginPermissions
 
   disposed = false
   private effects: Disposer[] = []
@@ -96,11 +100,13 @@ export class ContextImpl implements Context {
     pluginId: string,
     config: Record<string, unknown>,
     logger: Logger,
+    permissions?: PluginPermissions,
   ) {
     this.app = app
     this.pluginId = pluginId
     this.config = config
     this.logger = logger
+    this.permissions = permissions
   }
 
   effect(disposer: Disposer): void {
@@ -139,7 +145,7 @@ export class ContextImpl implements Context {
       )
     }
     this.app.services.registerConsumer(name, this.pluginId)
-    return impl
+    return this.bindToPlugin(impl)
   }
 
   injectOptional<T = unknown>(name: string): T | undefined {
@@ -147,6 +153,18 @@ export class ContextImpl implements Context {
     const impl = this.app.services.get<T>(name)
     if (impl === undefined) return undefined
     this.app.services.registerConsumer(name, this.pluginId)
+    return this.bindToPlugin(impl)
+  }
+
+  /**
+   * 若服务实现了 PluginScopedService.forPlugin，则返回「绑定本插件身份 + 声明的 permissions」的视图。
+   * 这是**治理点**（让服务知道调用方是谁、声明了什么），不是隔离：插件仍可直接调用 Node API。
+   */
+  private bindToPlugin<T>(impl: T): T {
+    const scoped = impl as unknown as Partial<PluginScopedService<T>>
+    if (typeof scoped.forPlugin === 'function') {
+      return scoped.forPlugin(this.pluginId, this.permissions)
+    }
     return impl
   }
 
@@ -180,8 +198,9 @@ export class ContextImpl implements Context {
 
   private async waitForInFlight(): Promise<void> {
     if (this.inFlight.size === 0) return
+    let timer: NodeJS.Timeout | undefined
     const timeout = new Promise<void>((resolve) => {
-      setTimeout(() => {
+      timer = setTimeout(() => {
         this.logger.warn(
           `[ctx:${this.pluginId}] 有 ${this.inFlight.size} 个 in-flight 操作未在 5s 内完成，已被强制中断。`,
         )
@@ -191,6 +210,9 @@ export class ContextImpl implements Context {
     })
     const settle = Promise.allSettled([...this.inFlight]).then(() => undefined)
     await Promise.race([settle, timeout])
+    // settle 先到时必须清掉强断定时器：否则它会继续占着事件循环 5s，
+    // 让「已经卸载完的进程」迟迟不退出。
+    if (timer) clearTimeout(timer)
     this.inFlight.clear()
   }
 

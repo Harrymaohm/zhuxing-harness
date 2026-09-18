@@ -57,6 +57,12 @@ export interface ModelMetrics {
   p95LatencyMs: number
   totalTokens: number
   estCost: number
+  /** 前缀缓存命中的输入 token 总数（DeepSeek 等端点上报）。 */
+  totalCacheHitTokens: number
+  /** 未命中缓存的输入 token 总数。 */
+  totalCacheMissTokens: number
+  /** 缓存命中率 = hit / (hit + miss)，无数据为 0。 */
+  cacheHitRate: number
   lastError?: string
 }
 
@@ -67,6 +73,10 @@ export interface ModelCallRecord {
   latencyMs: number
   promptTokens?: number
   completionTokens?: number
+  /** 前缀缓存命中的输入 token 数。 */
+  cacheHitTokens?: number
+  /** 未命中缓存的输入 token 数。 */
+  cacheMissTokens?: number
   estCost?: number
   error?: string
   ts: number
@@ -148,6 +158,8 @@ export interface RouterOptions extends ChatOptions {
   hints?: SelectOptions
   /** 首选失败时是否降级到次优模型（默认 true）。 */
   fallback?: boolean
+  /** 自动选择时排除这些模型 id（如编排委派时排除主模型自身 default；显式 modelId 指定时不过滤）。 */
+  excludeModelIds?: string[]
 }
 
 /** 模型路由器：统一模型交互入口（实现 ChatProvider，对所有调用方呈现一致接口）。 */

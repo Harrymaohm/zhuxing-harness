@@ -1,21 +1,43 @@
 import type { SessionItem, SpaceItem, WebConfig } from './types'
 
 let accessToken = ''
-let tokenLoaded = false
+let serverVersion = ''
+let bootstrapPromise: Promise<void> | null = null
 
-/** 启动时从 /api/bootstrap 拉取访问令牌（安装态启用认证时使用）。 */
-export async function initAccessToken(): Promise<void> {
-  if (tokenLoaded) return
-  tokenLoaded = true
+/**
+ * 启动时从 /api/bootstrap 拉取访问令牌与服务端版本（安装态启用认证时使用）。
+ *
+ * 缓存的是 promise 而不是「已加载」布尔标记：并发调用会等同一个请求，
+ * 不会出现「标记已置位但版本还没拿到」时读到空值的竞态。
+ */
+export function initAccessToken(): Promise<void> {
+  if (!bootstrapPromise) bootstrapPromise = loadBootstrap()
+  return bootstrapPromise
+}
+
+async function loadBootstrap(): Promise<void> {
   try {
     const res = await fetch('/api/bootstrap')
     if (res.ok) {
-      const data = (await res.json()) as { token?: string }
+      const data = (await res.json()) as { token?: string; version?: string }
       accessToken = data.token ?? ''
+      serverVersion = data.version ?? ''
     }
   } catch {
     /* 无认证环境忽略 */
   }
+}
+
+/**
+ * 界面构建版本与服务端版本是否不一致。
+ *
+ * 不一致 = 浏览器还在跑更新前的旧包，表现出来就是「界面是新的、行为却是旧的」。
+ * 返回 null 表示一致、或任一版本未知——不猜也不误报。
+ */
+export function versionMismatch(): { ui: string; server: string } | null {
+  const ui = typeof __UI_VERSION__ === 'string' ? __UI_VERSION__ : ''
+  if (!ui || !serverVersion || ui === serverVersion) return null
+  return { ui, server: serverVersion }
 }
 
 /** 统一请求头：认证 token + JSON。 */
@@ -169,6 +191,39 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
   })
 }
 
+/**
+ * 请求服务端取消正在跑的这一轮对话。
+ *
+ * 客户端断开 SSE 只是断开了浏览器这一端：服务端会把整轮跑完（白烧 token，
+ * 并让运行时占用计数迟迟不归零）。真正停下要显式给服务端一个 runId。
+ */
+export async function stopChatRun(runId: string): Promise<boolean> {
+  if (!runId) return false
+  const res = await apiFetch('/api/chat/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ runId }),
+  })
+  return res.ok
+}
+
+/**
+ * 查询服务端当前在跑的轮次（含所属会话）。
+ *
+ * 界面刷新或重开之后，内存里的 runId 就没了，此时只能问服务端要——
+ * 否则「停止」会变成点不动，用户只能干等一轮白烧的 token。
+ */
+export async function listActiveRuns(): Promise<Array<{ runId: string; sessionId: string }>> {
+  try {
+    const res = await apiFetch('/api/chat/active')
+    if (!res.ok) return []
+    const data = (await res.json()) as { runs?: Array<{ runId: string; sessionId: string }> }
+    return Array.isArray(data.runs) ? data.runs : []
+  } catch {
+    return []
+  }
+}
+
 // ============ 应用内更新 ============
 
 export interface UpdateCheckResult {
@@ -222,6 +277,20 @@ export async function uploadDropFile(name: string, dataBase64: string): Promise<
     throw new Error(body.error ?? `上传失败（HTTP ${res.status}）`)
   }
   return ((await res.json()) as { path: string }).path
+}
+
+/** File → base64（去掉 data URL 前缀）：上传类接口统一用 base64 传内容，界面侧共用此编码。 */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      const idx = result.indexOf(',')
+      resolve(idx >= 0 ? result.slice(idx + 1) : result)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 }
 
 /** 一键生成临时工作区目录，返回绝对路径；失败返回 null。 */

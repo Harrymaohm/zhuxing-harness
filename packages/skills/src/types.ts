@@ -17,6 +17,12 @@ export interface SkillDefinition {
   memory?: { scope: MemoryScope; tags?: string[] }
   /** 提示词模板，含 {{param}} 占位符。 */
   template: string
+  /**
+   * 技能来源：自有 YAML 模板，或外部 Agent Skills 规范的 SKILL.md（只读生态）。
+   * 必须区分：update() 要按来源写回对应文件，remove() 要按来源删对应文件，
+   * 否则会对 SKILL.md 技能静默删不掉、或在 update() 时造出同名 yaml 影子技能互相遮蔽。
+   */
+  source?: { format: 'yaml' | 'skill-md'; file: string }
   createdAt?: number
   updatedAt?: number
 }

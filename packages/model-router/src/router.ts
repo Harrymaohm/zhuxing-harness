@@ -44,6 +44,20 @@ export class ModelRouterImpl implements ModelRouter {
           tools: options.tools,
           signal: options.signal,
         })
+        // 空答复（无文本且无工具调用）视为失败：推理模型可能只返回 reasoning_content 而 content 为空，
+        // 记为成功会把「看似成功、实则没内容」的结果返回给调用方，导致上层空转重试。
+        if (!result.content.trim() && (result.toolCalls?.length ?? 0) === 0) {
+          const emptyErr = new Error('子模型返回空答复（content 为空且无工具调用）')
+          lastError = emptyErr
+          this.monitor.record({
+            modelId: choice.modelId,
+            ok: false,
+            latencyMs: Date.now() - startedAt,
+            error: emptyErr.message,
+            ts: Date.now(),
+          })
+          continue
+        }
         this.record(choice.modelId, Date.now() - startedAt, result)
         return this.attachModelId(result, choice.modelId)
       } catch (err) {
@@ -83,6 +97,7 @@ export class ModelRouterImpl implements ModelRouter {
       const startedAt = Date.now()
       try {
         let final: ChatResult | undefined
+        let emitted = false
         for await (const chunk of registered.provider.stream(messages, {
           model: options.model,
           temperature: options.temperature,
@@ -90,10 +105,26 @@ export class ModelRouterImpl implements ModelRouter {
           tools: options.tools,
           signal: options.signal,
         })) {
-          if (chunk.token) yield { token: chunk.token }
+          if (chunk.token) {
+            emitted = true
+            yield { token: chunk.token }
+          }
           if (chunk.done) final = chunk.done
         }
         const result = final ?? { content: '', toolCalls: [], finishReason: 'stop' as const }
+        // 空答复且未吐出任何 token 时同样视为失败，降级到次优模型（已吐 token 则无法回退）
+        if (!emitted && !result.content.trim() && (result.toolCalls?.length ?? 0) === 0) {
+          const emptyErr = new Error('子模型返回空答复（content 为空且无工具调用）')
+          lastError = emptyErr
+          this.monitor.record({
+            modelId: choice.modelId,
+            ok: false,
+            latencyMs: Date.now() - startedAt,
+            error: emptyErr.message,
+            ts: Date.now(),
+          })
+          continue
+        }
         this.record(choice.modelId, Date.now() - startedAt, result)
         yield { done: this.attachModelId(result, choice.modelId) }
         return
@@ -112,12 +143,16 @@ export class ModelRouterImpl implements ModelRouter {
     throw new Error(`[model-router] 子模型流式调用全部失败：${msg}`)
   }
 
-  /** 选择候选（显式 modelId 或自动评分排序）。 */
+  /** 选择候选（显式 modelId 或自动评分排序）；自动排序时剔除 excludeModelIds（如主模型自身）。 */
   private pickCandidates(messages: ChatMessage[], options: RouterOptions): ModelChoice[] {
-    return this.selector.select(messages, {
+    const modelId = options.modelId ?? options.hints?.modelId
+    const choices = this.selector.select(messages, {
       ...(options.hints ?? {}),
-      modelId: options.modelId ?? options.hints?.modelId,
+      modelId,
     })
+    if (modelId || !options.excludeModelIds?.length) return choices
+    const excluded = new Set(options.excludeModelIds)
+    return choices.filter((c) => !excluded.has(c.modelId))
   }
 
   /** 监控埋点：计算耗时与成本估算。 */
@@ -133,6 +168,8 @@ export class ModelRouterImpl implements ModelRouter {
       latencyMs,
       promptTokens,
       completionTokens,
+      cacheHitTokens: result.usage?.cacheHitTokens,
+      cacheMissTokens: result.usage?.cacheMissTokens,
       estCost: tokens > 0 ? Number(((tokens / 1000) * costPer1k).toFixed(6)) : 0,
       ts: Date.now(),
     })

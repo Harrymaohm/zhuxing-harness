@@ -55,7 +55,7 @@ export function apply(ctx: Context) {
 
 ### 工具执行管道
 
-`tools.execute` 统一走：前置拦截事件 → 沙箱守卫（`sandbox` 字段声明）→ 超时重试 → 结果规范化。
+`tools.execute` 统一走：前置拦截事件 → 插件权限裁决（插件 `permissions` 声明）→ 沙箱守卫（`sandbox` 字段声明）→ 超时重试 → 结果规范化。
 
 ```ts
 execute: (args) => ({ text: '...' })          // 成功
@@ -100,6 +100,41 @@ export const provides = ['my-service']    // 提供服务名（依赖拓扑/环�
 - 卸载顺序：消费者先于提供者；`ctx.effect` 逆序执行
 - `ctx.effect` 必须幂等（热重载会反复执行）
 - 工具注册务必用 `ctx.effect(unregister)` 绑定清理，否则热重载会残留
+
+## 权限清单（治理，不是隔离）
+
+插件可选声明 `permissions`，约束**经 harness 边界**的资源访问：
+
+```ts
+export const permissions = {
+  fsRead: ['/data/**'],       // 读路径范围（绝对路径前缀或 glob）
+  fsWrite: ['/tmp/my-plugin'], // 写路径范围
+  shell: ['echo', 'git'],      // 命令首词白名单
+  net: ['api.example.com'],    // 仅声明（当前无强制点，工具元数据无 host 语义）
+  env: ['MY_TOKEN'],           // 仅声明（同上）
+}
+```
+
+- **强制点**：工具执行边界。`args[writeArg] ⊆ fsWrite`、`args[readArg] ⊆ fsRead`、`args[commandArg]` 的命令首词 ∈ `shell`，
+  越界即拒绝执行（返回可读原因），并派发 `tools/after-exec`（`rejectedBy: 'plugin-permissions'`）供审计。
+- **能力边界**：权限**经由 harness 边界生效，不是进程隔离**。插件是进程内任意 JS 代码，可直接
+  `import('node:fs')` / `child_process` 绕过上述检查；未声明 `permissions` 的插件、以及未声明的维度都不设限。
+- 因此它是**治理与审计**手段，不是沙箱；真正的分发链路安全边界是下面的签名校验。
+
+## 签名校验（真边界：加载前拒绝）
+
+签名在插件**被加载之前**校验（`HARNESS_PLUGIN_KEYRING` > 配置 `plugins.trustedKeys` 提供信任清单）：
+
+```bash
+harness plugin-keygen --out my-key.pem            # 生成 ed25519 密钥对（私钥 0600，勿提交）
+harness plugin-sign ./my-plugin --key my-key.pem  # 对插件目录签名（写 .harness-signature.json）
+harness plugin-verify ./my-plugin                 # 独立校验
+export HARNESS_PLUGIN_KEYRING="my-key:<公钥 base64>"  # 配好后：加载/安装必过校验
+```
+
+- 签名覆盖**插件目录全部参与文件**的摘要，排除 `node_modules/`、`.git/`、`dist/`、`.harness-cache/`、`*.map`、`*.tsbuildinfo` 与签名文件自身。
+- 配了信任清单：未签名 / 公钥不可信 / 签名无效 / 内容与签名不符 → **拒绝加载或安装**（fail-closed）。
+- 未配置信任清单：保持既有行为（允许加载），但提示「插件签名未校验（未配置信任公钥）」——不校验不等于通过。
 
 ## 开发工作流
 

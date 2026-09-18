@@ -22,6 +22,8 @@ export class OpenAICompatibleProvider implements ChatProvider {
   private model: string
   private apiKey: string
   private timeoutMs: number
+  // DeepSeek 端点/模型检测：thinking、reasoning_effort 等专有参数仅对它下发，避免不兼容端点报错。
+  private deepseek: boolean
 
   constructor(options: OpenAICompatibleOptions) {
     this.apiKey = options.apiKey
@@ -29,6 +31,7 @@ export class OpenAICompatibleProvider implements ChatProvider {
     this.model = options.model
     this.timeoutMs = options.timeoutMs ?? 120_000
     this.name = `openai-compatible:${this.model}`
+    this.deepseek = /deepseek/i.test(`${this.baseUrl} ${this.model}`)
   }
 
   async chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResult> {
@@ -76,14 +79,17 @@ export class OpenAICompatibleProvider implements ChatProvider {
               promptTokens: data.usage.prompt_tokens,
               completionTokens: data.usage.completion_tokens,
               totalTokens: data.usage.total_tokens,
+              cacheHitTokens: data.usage.prompt_cache_hit_tokens,
+              cacheMissTokens: data.usage.prompt_cache_miss_tokens,
             }
           : undefined,
+        reasoningContent: typeof msg.reasoning_content === 'string' ? msg.reasoning_content : undefined,
         raw: data,
       }
     } catch (err) {
       // 超时中止：归一化为清晰的超时错误
       if (controller.signal.aborted) {
-        throw new Error(`模型请求超时（${this.timeoutMs}ms）`)
+        throw new Error(`模型请求超时（${this.timeoutMs}ms）`, { cause: err })
       }
       throw err
     } finally {
@@ -130,6 +136,7 @@ export class OpenAICompatibleProvider implements ChatProvider {
       const decoder = new TextDecoder()
       let buffer = ''
       let content = ''
+      let reasoning = ''
       const toolCalls: ToolCall[] = []
       let finishReason: string | undefined
       let usage: ChatResult['usage'] | undefined
@@ -153,6 +160,10 @@ export class OpenAICompatibleProvider implements ChatProvider {
           }
           const choice = json.choices?.[0]
           const delta = choice?.delta
+          if (delta?.reasoning_content) {
+            reasoning += delta.reasoning_content
+            yield { reasoning: delta.reasoning_content }
+          }
           if (delta?.content) {
             content += delta.content
             yield { token: delta.content }
@@ -172,6 +183,8 @@ export class OpenAICompatibleProvider implements ChatProvider {
               promptTokens: json.usage.prompt_tokens,
               completionTokens: json.usage.completion_tokens,
               totalTokens: json.usage.total_tokens,
+              cacheHitTokens: json.usage.prompt_cache_hit_tokens,
+              cacheMissTokens: json.usage.prompt_cache_miss_tokens,
             }
           }
         }
@@ -182,11 +195,12 @@ export class OpenAICompatibleProvider implements ChatProvider {
           toolCalls: toolCalls.filter(Boolean),
           finishReason: finishReason ?? 'stop',
           usage,
+          reasoningContent: reasoning || undefined,
         },
       }
     } catch (err) {
       if (controller.signal.aborted) {
-        throw new Error(`模型请求超时（${this.timeoutMs}ms）`)
+        throw new Error(`模型请求超时（${this.timeoutMs}ms）`, { cause: err })
       }
       throw err
     } finally {
@@ -215,6 +229,13 @@ export class OpenAICompatibleProvider implements ChatProvider {
     }
     if (options.temperature !== undefined) body.temperature = options.temperature
     if (options.maxTokens !== undefined) body.max_tokens = options.maxTokens
+    if (options.jsonMode) body.response_format = { type: 'json_object' }
+    // DeepSeek 专有参数（官方文档：thinking.type 思考模式开关、reasoning_effort 思考强度）：
+    // 编译器/选择器/摘要等机械调用传 thinking:'disabled'，思维链不再计入输出计费；非 DeepSeek 端点不下发。
+    if (this.deepseek) {
+      if (options.thinking) body.thinking = { type: options.thinking }
+      if (options.reasoningEffort) body.reasoning_effort = options.reasoningEffort
+    }
     if (options.tools && options.tools.length > 0) {
       body.tools = options.tools.map((t) => ({
         type: 'function',

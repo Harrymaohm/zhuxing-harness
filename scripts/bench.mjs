@@ -11,20 +11,6 @@ const dir = mkdtempSync(join(tmpdir(), 'zhuxing-bench-'))
 const src = join(dir, 'bench-plugin.ts')
 writeFileSync(src, `export const name = 'bench-plugin'\nexport function apply() {}\n`)
 
-async function measure(label, fn) {
-  // 预热
-  const samples = []
-  for (let i = 0; i < 5; i++) {
-    const t0 = performance.now()
-    await fn()
-    samples.push(performance.now() - t0)
-  }
-  const min = Math.min(...samples)
-  const avg = samples.reduce((a, b) => a + b, 0) / samples.length
-  console.log(`  ${label}: min=${min.toFixed(1)}ms avg=${avg.toFixed(1)}ms (n=5)`)
-  return { min, avg }
-}
-
 // 冷启动：首次转译（每次改内容模拟新代码）
 const coldSamples = []
 for (let i = 0; i < 5; i++) {

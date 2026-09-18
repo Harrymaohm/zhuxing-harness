@@ -38,7 +38,7 @@ export class HarnessError extends Error {
         return new HarnessError(err.message, 'TIMEOUT', '任务超时。可加大 --timeout / 检查模型端点响应速度。')
       }
       if (/read-only|workspace-write|sandbox|权限|工作区外/i.test(err.message)) {
-        return new HarnessError(err.message, 'PERMISSION', '沙箱策略拒绝。如需更高权限，请使用 --level workspace-write 或 danger-full-access。')
+        return new HarnessError(err.message, 'PERMISSION', '沙箱策略拒绝。请改用受控写工具（如 write_file）在工作区内完成写入，或用 --level 调整级别。')
       }
       if (/插件|挂载失败|plugin|依赖|循环依赖|inject/i.test(err.message)) {
         return new HarnessError(err.message, 'PLUGIN', '请运行 harness validate <插件路径> 校验插件定义。')
@@ -49,7 +49,7 @@ export class HarnessError extends Error {
 }
 
 const SECRET_PATTERN = /\bsk-[A-Za-z0-9_-]{6,}\b/g
-const ENV_SECRET_PATTERN = /(api[_\-]?key|token|secret)\s*[=:]\s*(['"]?)([A-Za-z0-9._-]{8,})\2/gi
+const ENV_SECRET_PATTERN = /(api[_-]?key|token|secret)\s*[=:]\s*(['"]?)([A-Za-z0-9._-]{8,})\2/gi
 
 /** 输出脱敏：将常见 API Key / 令牌替换为掩码，防止日志、截图、分享泄露凭证。 */
 export function maskSecrets(text: string): string {

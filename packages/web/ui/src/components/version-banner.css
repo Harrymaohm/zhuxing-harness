@@ -1,0 +1,68 @@
+/* ============================================================
+   版本不一致提示条
+   —— 独立文件，class 统一加 vb- 前缀；颜色复用 style.css 的 token，
+   因此深色/浅色两套主题自动成立。
+   ============================================================ */
+
+.vb-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: var(--z-drag);
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  max-width: min(720px, 92vw);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-full);
+  background: var(--surface-1);
+  color: var(--text);
+  box-shadow: var(--shadow-3);
+  font-family: var(--font-sans);
+  font-size: var(--f-sm);
+}
+
+.vb-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.vb-text b {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.vb-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex: none;
+}
+
+.vb-btn {
+  padding: var(--s-1) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--f-xs);
+  cursor: pointer;
+  transition: color var(--t-1) var(--e-out), border-color var(--t-1) var(--e-out);
+}
+
+.vb-btn:hover {
+  color: var(--text);
+  border-color: var(--line-hi);
+}
+
+.vb-primary {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}

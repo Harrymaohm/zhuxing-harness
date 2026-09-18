@@ -1,34 +1,65 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { apiFetch, archiveSession, askKnowledge, checkUpdate, clearKnowledge, createKnowledgeFolder, createKnowledgeSpace, createSpace, createTempWorkspace, deleteKnowledgeDoc, deleteKnowledgeFolder, deleteKnowledgeSpace, deleteSession, fetchConfig, fetchKnowledgeDoc, fetchKnowledgeDocs, fetchKnowledgeFolders, fetchKnowledgeSpaces, fetchSessions, fetchSpaces, fetchSpecs, fetchTokenPlanModels, forkSession, initAccessToken, installSpec, installUpdateZip, mergeSession, moveKnowledgeDoc, pickWorkspaceDir, reindexKnowledge, removeSpace, removeSpec, renameSession, setSpecEnabled, triggerUpdate, unarchiveSession, uploadDropFile, uploadKnowledge } from './api'
-import { CAPABILITY_LABELS, CAPABILITY_OPTIONS } from './types'
-import type { ChatMessage, ImageModelEntry, MemoryEntry, SessionItem, SpaceItem, SubModelEntry, TokenPlanEntry, TokenPlanImageEntry, TokenPlanSimpleEntry, TokenPlanTextEntry, TraceItem, WebConfig } from './types'
-import type { KnowledgeDoc, KnowledgeDocDetail, KnowledgeFolder, KnowledgeHit, KnowledgeSpace, SpecRecord, UpdateCheckResult } from './api'
-import mammoth from 'mammoth'
-import * as XLSX from 'xlsx'
-import { PresentationViewer, type PresentationViewerHandle } from 'pptx-wasm/react'
-import pptxWasmUrl from 'pptx-wasm/wasm?url'
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { apiFetch, archiveSession, askKnowledge, clearKnowledge, createKnowledgeFolder, createKnowledgeSpace, createSpace, deleteKnowledgeDoc, deleteKnowledgeFolder, deleteKnowledgeSpace, deleteSession, fetchConfig, fetchKnowledgeDoc, fetchKnowledgeDocs, fetchKnowledgeFolders, fetchKnowledgeSpaces, fetchSessions, fetchSpaces, fileToBase64, forkSession, initAccessToken, mergeSession, moveKnowledgeDoc, reindexKnowledge, removeSpace, renameSession, stopChatRun, listActiveRuns, unarchiveSession, uploadDropFile, uploadKnowledge } from './api'
+import type { ChatMessage, SessionItem, SpaceItem, WebConfig } from './types'
+import type { KnowledgeDoc, KnowledgeDocDetail, KnowledgeFolder, KnowledgeHit, KnowledgeSpace } from './api'
+import { Icon } from './components/Icon'
+import { Markdown, FOLD_BLOCK_LIMIT } from './components/markdown'
+import type { PreviewHandler } from './components/markdown'
+import { WorkspaceDock } from './components/WorkspaceDock'
+import { InlineError, InlineLoading } from './components/Inline'
+import { rebuildMessages, summarize } from './lib/messages'
+import { StreamBuffer } from './lib/stream-buffer'
+import { useViewTransition } from './hooks/useViewTransition'
+import { useModalA11y } from './hooks/useModalA11y'
+import { useDebouncedValue } from './hooks/useDebouncedValue'
+
+/**
+ * 按需加载的重组件（见 `ui/src/views/`）。
+ *
+ * 它们各自带着重量级依赖（文件预览：mammoth + SheetJS + pptx-wasm；知识图谱：three + OrbitControls）
+ * 或成片的面板代码（设置弹窗），而首屏真正用到的只有对话区。静态 import 会让所有人先下载一遍
+ * 「可能永远用不到」的库，拆成独立 chunk 后它们只在用户点开预览 / 进设置 / 进知识库时才拉取。
+ *
+ * 放在 `views/` 而不是 `components/`：`components/` 是可在 jsdom 里单测的通用原语，且挂着
+ * 覆盖率门槛（见 vitest.config.ts）；这些视图组件含 WebGL / wasm，本就无法在 jsdom 中跑单测。
+ */
+const FilePreview = lazy(() => import('./views/FilePreview').then((m) => ({ default: m.FilePreview })))
+const SettingsModal = lazy(() => import('./views/SettingsModal').then((m) => ({ default: m.SettingsModal })))
+const KnowledgeGraph = lazy(() => import('./views/KnowledgeGraph').then((m) => ({ default: m.KnowledgeGraph })))
 
 let msgId = 0
 const nextId = () => `m${++msgId}`
 
-/** token-plan 专用域名（阿里云百炼聚合 API）。 */
-const TOKEN_PLAN_ORIGIN = 'https://token-plan.cn-beijing.maas.aliyuncs.com'
+/** 上次打开的会话 id：刷新后据此恢复现场（内存里的状态刷新即丢）。 */
+const LAST_SESSION_KEY = 'harness-last-session'
 
-/** 生图模型建议项（下拉提示，仍可自由输入）。 */
-const IMAGE_MODEL_PRESETS = [
-  'qwen-image',
-  'qwen-image-plus',
-  'qwen-image-max',
-  'qwen-image-2.0',
-  'qwen-image-2.0-pro',
-  'qwen-image-3.0',
-  'qwen-image-3.0-pro',
-  'wanx-v1',
-  'dall-e-3',
-  'gpt-image-1',
-]
+/** 读取上次会话；隐私模式下 localStorage 不可用，静默降级为「没有」。 */
+function readLastSession(): string | undefined {
+  try {
+    return localStorage.getItem(LAST_SESSION_KEY) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+function rememberLastSession(id: string | undefined): void {
+  try {
+    if (id) localStorage.setItem(LAST_SESSION_KEY, id)
+    else localStorage.removeItem(LAST_SESSION_KEY)
+  } catch {
+    /* 写不进去不影响功能，只是刷新后回到新对话 */
+  }
+}
+
+/**
+ * 是否是「提交」的回车。
+ *
+ * 中文/日文输入法在选词时也会派发 Enter（此时 nativeEvent.isComposing 为真，keyCode 常为 229），
+ * 不判断就会把半截拼音当消息发出去——这是中文用户的高频误操作。
+ */
+function isSubmitEnter(e: React.KeyboardEvent): boolean {
+  return e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229
+}
 
 /** 从 file:// 或 file:/// URI 解析本地绝对路径（浏览器拖拽文件用）。 */
 function fileUriToPath(uri: string): string | null {
@@ -72,81 +103,33 @@ async function walkDirectory(dir: FileSystemDirectoryHandle, prefix: string, out
   }
 }
 
-function summarize(result: unknown): string {
-  if (result === null || result === undefined) return ''
-  const r = result as { text?: string; error?: string; json?: unknown }
-  if (typeof r === 'object') {
-    if (r.error !== undefined) return `错误: ${r.error}`
-    if (r.text !== undefined) return r.text
-    if (r.json !== undefined) return JSON.stringify(r.json).slice(0, 120)
-  }
-  return String(result).slice(0, 120)
-}
+type Theme = 'dark' | 'light'
+
+const THEME_KEY = 'harness-theme'
 
 /**
- * 从会话事件重建前端消息列表（历史会话 / 子对话共用）。
- * 工具轮次折叠为带 trace 的 assistant 消息（与实时对话观感一致，不渲染空白骨架）；
- * 图片附件还原为 images；重建内容均为「已完成」，不设 running。
+ * 主题：暗色为默认，浅色为次主题。
+ * 首帧由 index.html 的预置脚本写入 data-theme（避免闪白），此后以本 hook 为唯一真源。
  */
-function rebuildMessages(
-  events: Array<{ type: string; payload: unknown }>,
-  sessionId?: string,
-): ChatMessage[] {
-  const list: ChatMessage[] = []
-  let pending: ChatMessage | null = null
-  let toolStep = 0
-  for (const evt of events) {
-    const p = evt.payload as {
-      content?: string
-      name?: string
-      result?: unknown
-      toolCalls?: unknown
-      attachments?: Array<{ type: string; dataUrl: string }>
-    }
-    if (evt.type === 'user') {
-      pending = null
-      const images = Array.isArray(p.attachments) ? p.attachments.filter((a) => a.dataUrl).map((a) => a.dataUrl) : []
-      list.push({ id: nextId(), role: 'user', content: p.content ?? '', images: images.length > 0 ? images : undefined })
-    } else if (evt.type === 'assistant') {
-      const toolCalls = Array.isArray(p.toolCalls)
-        ? (p.toolCalls as Array<{ id?: string; name?: string; arguments?: string }>)
-        : []
-      if (toolCalls.length > 0) {
-        toolStep += 1
-        pending = {
-          id: nextId(),
-          role: 'assistant',
-          content: p.content ?? '',
-          sessionId,
-          trace: [
-            { type: 'step', step: toolStep },
-            ...toolCalls.map((tc) => ({ type: 'tool' as const, toolName: tc.name ?? '', toolArgs: tc.arguments ?? '' })),
-          ],
-        }
-        list.push(pending)
-      } else {
-        pending = null
-        list.push({ id: nextId(), role: 'assistant', content: p.content ?? '', sessionId })
+function useTheme(): [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
+  )
+  const toggle = useCallback(() => {
+    setTheme((prev) => {
+      const next: Theme = prev === 'dark' ? 'light' : 'dark'
+      try {
+        localStorage.setItem(THEME_KEY, next)
+      } catch {
+        /* 隐私模式下写入失败不阻塞切换 */
       }
-    } else if (evt.type === 'tool') {
-      const name = String(p.name ?? '')
-      const result = p.result ? summarize(p.result) : ''
-      if (pending) {
-        const trace = [...(pending.trace ?? [])]
-        let matched = false
-        for (let i = trace.length - 1; i >= 0; i--) {
-          if (trace[i].type === 'tool' && trace[i].toolName === name && trace[i].toolResult === undefined) {
-            trace[i] = { ...trace[i], toolResult: result }
-            matched = true
-            break
-          }
-        }
-        if (!matched) trace.push({ type: 'tool', toolName: name, toolResult: result })
-        pending.trace = trace
-      }
-    }
-  }
-  return list
+      return next
+    })
+  }, [])
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
+  return [theme, toggle]
 }
 
 export function App() {
@@ -167,15 +150,21 @@ export function App() {
   const [editingTitle, setEditingTitle] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
   const [toast, setToast] = useState('')
-  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  /** 文件预览目标：路径 + 可选行号（反引号内 `path:line` 语法）。 */
+  const [previewTarget, setPreviewTarget] = useState<{ path: string; line?: number } | null>(null)
   const [subChat, setSubChat] = useState<{ sessionId: string; parentId: string } | null>(null)
   /** 拖入的文件链接（绝对路径）。 */
   const [fileLinks, setFileLinks] = useState<Array<{ path: string; name: string }>>([])
   /** 拖入的图片附件（data URL，随消息发送给多模态模型）。 */
   const [attachments, setAttachments] = useState<Array<{ type: 'image'; dataUrl: string }>>([])
   const [dragging, setDragging] = useState(false)
+  const [theme, toggleTheme] = useTheme()
+  const morph = useViewTransition()
+  const [railCollapsed, setRailCollapsed] = useState(false)
   const sessionIdRef = useRef<string | undefined>(undefined)
   const abortRef = useRef<AbortController | null>(null)
+  /** 本轮对话的服务端 runId：点「停止」时带着它请求服务端取消（只断 SSE 服务端不会停）。 */
+  const runIdRef = useRef('')
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
@@ -224,8 +213,11 @@ export function App() {
   }, [activeSpaceId, showArchived, refreshSessions])
 
   useEffect(() => {
-    if (autoScroll) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, autoScroll])
+    if (!autoScroll) return
+    // 流式期间用即时滚动：smooth 动画会被下一个增量打断并重启，既浪费合成器线程，
+    // 观感上也是「滚动抖动 / 跟不上」。非流式（切换会话、新消息落定）仍用平滑滚动。
+    bottomRef.current?.scrollIntoView({ behavior: running ? 'auto' : 'smooth' })
+  }, [messages, autoScroll, running])
 
   useEffect(() => {
     return () => {
@@ -306,22 +298,75 @@ export function App() {
   }
 
   function newChat() {
+    detachRunning()
     setMessages([])
     setError('')
     sessionIdRef.current = undefined
+    rememberLastSession(undefined)
   }
 
   async function openSession(id: string) {
     setPage('chat')
-    setRunning(false)
-    abortRef.current?.abort()
-    const res = await apiFetch(`/api/sessions/${id}/events`)
-    if (!res.ok) return
-    const data = (await res.json()) as { events: Array<{ type: string; source: string; payload: unknown }> }
-    const list = rebuildMessages(data.events, id)
-    setMessages(list)
+    detachRunning()
+    rememberLastSession(id)
+    // 乐观标记目标会话：并发点击时，先回来的旧响应会发现自己已经不是当前目标，
+    // 直接丢弃——否则会出现「标题是 B、正文是 A」这种错位。
     sessionIdRef.current = id
+    const res = await apiFetch(`/api/sessions/${id}/events`)
+    if (sessionIdRef.current !== id) return
+    if (!res.ok) {
+      setError(`会话加载失败（HTTP ${res.status}）`)
+      return
+    }
+    const data = (await res.json()) as { events: Array<{ type: string; source: string; payload: unknown }> }
+    if (sessionIdRef.current !== id) return
+    setMessages(rebuildMessages(data.events, id, nextId))
     setError('')
+    void attachActiveRun(id)
+  }
+
+  /**
+   * 把仍在服务端运行的轮次重新挂上「停止」。
+   *
+   * 刷新窗口或重开客户端之后，内存里的 runId 就没了——不知道哪一轮还在跑，
+   * 停止按钮于是失效，用户只能干看着它烧 token。这里向服务端问一次补回来。
+   */
+  async function attachActiveRun(sid: string | undefined): Promise<void> {
+    if (!sid || abortRef.current) return
+    const runs = await listActiveRuns()
+    const hit = runs.find((r) => r.sessionId === sid)
+    if (!hit) return
+    runIdRef.current = hit.runId
+    setRunning(true)
+  }
+
+  // 刷新/重开客户端后恢复现场：内存里的会话 id 与 runId 都没了。
+  // 先取回上次打开的会话（不取回的话，下面的补挂永远是死代码——启动时 sid 必为 undefined），
+  // 再由 openSession 内部把仍在服务端跑的轮次挂回「停止」。
+  useEffect(() => {
+    const last = readLastSession()
+    if (last) void openSession(last)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /**
+   * 离开或停止当前轮次时的统一收尾：先让服务端真停，再断开本地流，最后复位界面状态。
+   *
+   * 只断前端是不够的——服务端会把整轮跑完（白烧 token），而且会继续往已被丢弃的消息里
+   * patch 内容；只复位界面不动流，则会出现「界面已经回到新对话、后台还在烧」。
+   */
+  function detachRunning(): void {
+    const id = runIdRef.current
+    runIdRef.current = ''
+    if (id) void stopChatRun(id)
+    abortRef.current?.abort()
+    abortRef.current = null
+    setRunning(false)
+  }
+
+  /** 「停止」：与离开会话同义，只是人还留在这个会话里。 */
+  function handleStop(): void {
+    detachRunning()
   }
 
   async function renameCurrentSession(id: string) {
@@ -332,7 +377,7 @@ export function App() {
     }
     const ok = await renameSession(id, title)
     if (!ok) {
-      setError('会话重命名失败')
+      // 一次性动作的失败只走 toast：错误横幅在消息区，离侧栏的重命名操作点太远
       showToast('会话重命名失败')
       return
     }
@@ -387,8 +432,10 @@ export function App() {
     if (ok) {
       showToast('已删除对话')
       if (sessionIdRef.current === id) {
+        detachRunning()
         setMessages([])
         sessionIdRef.current = undefined
+        rememberLastSession(undefined)
       }
       await refreshSessions()
       await refreshSpaces()
@@ -396,11 +443,13 @@ export function App() {
   }
 
   function handleSelectSpace(spaceId: string) {
+    detachRunning()
     setActiveSpaceId(spaceId)
     setShowArchived(false)
     setMessages([])
     setError('')
     sessionIdRef.current = undefined
+    rememberLastSession(undefined)
   }
 
   async function handleNewSpace() {
@@ -442,21 +491,37 @@ export function App() {
   }
 
   function toggleArchived() {
+    detachRunning()
     setShowArchived((v) => !v)
     setMessages([])
     setError('')
     sessionIdRef.current = undefined
+    rememberLastSession(undefined)
   }
 
-  async function saveConfigPatch(patch: Partial<WebConfig>) {
-    const res = await apiFetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    })
-    if (res.ok) {
+  /**
+   * 保存配置片段。
+   *
+   * 必须 await 且把失败讲出来：调用方此前用 setTimeout 假装「保存中…」，
+   * 保存失败时弹窗不关也没有任何提示，用户只会觉得「点了没反应」。
+   */
+  async function saveConfigPatch(patch: Partial<WebConfig>): Promise<boolean> {
+    try {
+      const res = await apiFetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) {
+        showToast(`保存失败（HTTP ${res.status}）`)
+        return false
+      }
       setConfig((prev) => ({ ...prev, ...patch }))
       setShowSettings(false)
+      return true
+    } catch (err) {
+      showToast(err instanceof Error ? `保存失败：${err.message}` : '保存失败')
+      return false
     }
   }
 
@@ -562,6 +627,8 @@ export function App() {
 
     const controller = new AbortController()
     abortRef.current = controller
+    const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    runIdRef.current = runId
 
     const patchAssistant = (fn: (m: ChatMessage) => ChatMessage) => {
       setMessages((prev) => {
@@ -573,11 +640,14 @@ export function App() {
       })
     }
 
+    // 流式增量缓冲（正文/思考的合并窗口与撤回判定见 lib/stream-buffer，那边可单测）
+    const streamCtx = new StreamBuffer()
+
     try {
       const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, sessionId: sessionIdRef.current, spaceId: activeSpaceId || undefined, attachments: sentAttachments, contextSessionId: refSessionId || undefined }),
+        body: JSON.stringify({ message, sessionId: sessionIdRef.current, spaceId: activeSpaceId || undefined, attachments: sentAttachments, contextSessionId: refSessionId || undefined, runId }),
         signal: controller.signal,
       })
       if (!res.ok || !res.body) throw new Error(`请求失败（HTTP ${res.status}）`)
@@ -597,20 +667,32 @@ export function App() {
           if (line.startsWith('event:')) event = line.slice(6).trim()
           else if (line.startsWith('data:')) {
             const data = JSON.parse(line.slice(5).trim()) as Record<string, unknown>
-            handleSseEvent(event, data, patchAssistant)
+            handleSseEvent(event, data, patchAssistant, streamCtx)
             event = ''
           }
         }
       }
+      // 流正常结束却没等到 result（服务端重启/连接被中间层掐断）：必须给气泡收尾，
+      // 否则它会永远停在「生成中」，用户看到的就是「对话不再更新」
+      patchAssistant((m) =>
+        m.running ? { ...m, running: false, error: true, content: m.content || '（连接中断，未收到结果；请重发或刷新页面）' } : m,
+      )
       void refreshSessions()
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
+      if ((err as Error).name === 'AbortError') {
+        // 主动「停止」同样要收尾，不然也是永久「生成中」
+        patchAssistant((m) => (m.running ? { ...m, running: false, content: m.content || '（已停止）' } : m))
+      } else {
         setError(err instanceof Error ? err.message : String(err))
         patchAssistant((m) => ({ ...m, running: false, content: m.content || '（发生错误）', error: true }))
       }
     } finally {
+      // 异常与中断路径同样要把没到点的缓冲写回，否则最后一段会随流一起丢
+      streamCtx.flushTokens(patchAssistant)
+      streamCtx.flushThinking(patchAssistant)
       setRunning(false)
       abortRef.current = null
+      runIdRef.current = ''
     }
   }
 
@@ -618,15 +700,38 @@ export function App() {
     event: string,
     data: Record<string, unknown>,
     patchAssistant: (fn: (m: ChatMessage) => ChatMessage) => void,
+    streamCtx: StreamBuffer,
   ) {
     switch (event) {
+      case 'session':
+        // 会话 id 前置（服务端在开跑前就建好会话）：立刻记下归属并持久化，
+        // 首条消息生成期间刷新也能回到该会话、把「停止」补挂回去。
+        if (data.sessionId && !sessionIdRef.current) {
+          sessionIdRef.current = String(data.sessionId)
+          rememberLastSession(sessionIdRef.current)
+        }
+        break
       case 'step':
+        // 每个 step 开始：清空本步的过程内容缓冲，独立累积
+        streamCtx.nextStep()
         patchAssistant((m) => ({
           ...m,
           trace: [...(m.trace ?? []), { type: 'step', step: Number(data.step) }],
         }))
         break
-      case 'tool':
+      case 'tool': {
+        // 本步调用工具：说明这段文字其实是「过程性描述」——从结论里撤回，改归入思考。
+        // token 现在是实时上屏的，所以必须显式撤回（旧实现只往缓冲里攒，撤回这步不存在）。
+        // 先补齐还压在上屏缓冲里的正文：下面的 endsWith 判断依赖 m.content 以本步正文结尾。
+        streamCtx.flushTokens(patchAssistant)
+        const desc = streamCtx.takeCurContent()
+        if (desc) {
+          patchAssistant((m) => {
+            const content = m.content ?? ''
+            const trimmed = content.endsWith(desc) ? content.slice(0, content.length - desc.length) : content
+            return { ...m, content: trimmed, thinking: [m.thinking, desc].filter(Boolean).join('\n\n') }
+          })
+        }
         patchAssistant((m) => ({
           ...m,
           trace: [
@@ -639,6 +744,7 @@ export function App() {
           ],
         }))
         break
+      }
       case 'tool_result':
         patchAssistant((m) => {
           const trace = [...(m.trace ?? [])]
@@ -651,24 +757,65 @@ export function App() {
           return { ...m, trace }
         })
         break
-      case 'token':
-        patchAssistant((m) => ({ ...m, content: `${m.content ?? ''}${String(data.text ?? '')}` }))
+      case 'thinking': {
+        // 合并窗口内累积，到点一次性写回（理由见 STREAM_THINK_FLUSH_MS）
+        streamCtx.pushThinking(String(data.text ?? ''), patchAssistant)
         break
-      case 'result':
+      }
+      case 'token':
+        // 实时上屏（打字机效果），同时保留缓冲：本步若调用工具，这段文字会在 'tool' 事件里
+        // 被撤回并归入「思考」；否则它就是结论正文。
+        // 只缓冲不上屏的旧做法会让长回答一直停在骨架动画上，最后整段「啪」地出现。
+        // 但上屏要走合并窗口（理由见 STREAM_TOKEN_FLUSH_MS）；curContent 必须同步累积，
+        // 撤回判定读的是它，不能等到定时器才更新。
+        streamCtx.pushToken(String(data.text ?? ''), patchAssistant)
+        break
+      case 'result': {
+        // 交付结束：只在此把最终答复写入「结论」，并用 result.content 权威覆盖
+        streamCtx.flushTokens(patchAssistant)
+        streamCtx.flushThinking(patchAssistant)
+        const finalContent = String(data.content ?? '') || streamCtx.curContent
+        streamCtx.nextStep()
         sessionIdRef.current = String(data.sessionId ?? '')
         patchAssistant((m) => ({
           ...m,
+          content: finalContent,
           running: false,
           steps: Number(data.steps ?? 0),
           finishedReason: String(data.finishedReason ?? ''),
           sessionId: String(data.sessionId ?? ''),
         }))
         break
+      }
       case 'error':
+        // 先把已产出的正文补上屏，错误信息才会接在正文之后而不是插到中间
+        streamCtx.flushTokens(patchAssistant)
+        streamCtx.flushThinking(patchAssistant)
         patchAssistant((m) => ({ ...m, running: false, content: `${m.content ?? ''}\n[错误] ${String(data.message ?? '')}`, error: true }))
         break
     }
   }
+
+  /**
+   * 会话树分组（父 → 子）与顶层列表。
+   *
+   * 这段计算只依赖 sessions，但原先写在 JSX 的 IIFE 里，每次渲染都要重跑一遍：
+   * 流式期间每个 token 都会触发一次根组件渲染，于是「分组 + 顶层过滤 + 展开」被白算成百上千次。
+   * 顶层过滤原先是 `sessions.some(...)`（O(n²)），这里先用 Set 建索引降到 O(n)。
+   */
+  const sessionTree = useMemo(() => {
+    const ids = new Set(sessions.map((s) => s.id))
+    const childrenByParent = new Map<string, SessionItem[]>()
+    for (const s of sessions) {
+      // 父会话不在列表里（已删除/未加载）的孤立子会话不进分组，直接按顶层渲染——
+      // 与原先「分组键指向不存在的父」时的可见结果一致，只是不再留下永远渲染不到的死键
+      if (!s.parentId || !ids.has(s.parentId)) continue
+      const arr = childrenByParent.get(s.parentId) ?? []
+      arr.push(s)
+      childrenByParent.set(s.parentId, arr)
+    }
+    return { childrenByParent, topLevel: sessions.filter((s) => !s.parentId || !ids.has(s.parentId)) }
+  }, [sessions])
 
   return (
     <div
@@ -686,81 +833,78 @@ export function App() {
         void handleDrop(e)
       }}
     >
-      <svg className="bg-flow-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="bgLineGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#6366f1" stopOpacity="0.18" />
-            <stop offset="0.5" stopColor="#8b5cf6" stopOpacity="0.28" />
-            <stop offset="1" stopColor="#22d3ee" stopOpacity="0.18" />
-          </linearGradient>
-        </defs>
-        <path d="M -4 22 C 26 12, 52 38, 100 26" />
-        <path d="M -4 42 C 22 34, 60 60, 100 46" />
-        <path d="M -4 64 C 30 52, 66 78, 100 64" />
-        <path d="M -4 86 C 24 78, 58 98, 100 86" />
-      </svg>
       {dragging && (
         <div className="drag-overlay">
           <div className="drag-overlay-inner">
-            <span className="drag-overlay-icon">📎</span>
+            <span className="drag-overlay-icon"><Icon name="paperclip" size={40} /></span>
             <span>松开鼠标：文件生成链接 · 图片作为附件</span>
           </div>
         </div>
       )}
-      <aside className="sidebar">
+      <aside className={`sidebar${railCollapsed ? ' collapsed' : ''}`}>
         <div className="sidebar-header">
-          <span className="brand">筑星 Harness</span>
-        </div>
-        <div className="space-bar">
+          <span className="brand" title="筑星 Harness">
+            <span className="brand-name">筑星 Harness</span>
+          </span>
           <button
-            className={`space-chip ${activeSpaceId === '' && !showArchived ? 'active' : ''}`}
-            onClick={() => handleSelectSpace('')}
-            title="默认空间"
+            className="icon-btn rail-collapse"
+            onClick={() => setRailCollapsed((v) => !v)}
+            title={railCollapsed ? '展开侧栏' : '收起为图标轨'}
+            aria-label={railCollapsed ? '展开侧栏' : '收起为图标轨'}
+            aria-expanded={!railCollapsed}
           >
-            默认
-          </button>
-          {spaces.map((sp) => (
-            <div key={sp.id} className="space-item">
-              <button
-                className={`space-chip ${activeSpaceId === sp.id && !showArchived ? 'active' : ''}`}
-                onClick={() => handleSelectSpace(sp.id)}
-                title={sp.title}
-              >
-                {sp.title}
-              </button>
-              <button
-                className="space-chip-del"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void handleDeleteSpace(sp.id)
-                }}
-                title="删除空间"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          <button className="space-chip add" onClick={() => void handleNewSpace()} title="新建空间">
-            +
+            <Icon name={railCollapsed ? 'chevron-right' : 'chevron-left'} />
           </button>
         </div>
-        <button className={`btn archived-toggle${showArchived ? ' active' : ''}`} onClick={toggleArchived}>
-          🗂 已归档对话
-        </button>
-        <button className="btn new-chat" onClick={newChat}>
-          + 新对话
+
+        <div className="sidebar-scope">
+          <select
+            className="space-select"
+            value={showArchived ? '__archived' : activeSpaceId}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v === '__archived') {
+                if (!showArchived) toggleArchived()
+                return
+              }
+              if (showArchived) {
+                setShowArchived(false)
+                setMessages([])
+                setError('')
+                sessionIdRef.current = undefined
+              }
+              handleSelectSpace(v)
+            }}
+            title="切换空间（项目）"
+          >
+            <option value="">默认空间</option>
+            {spaces.map((sp) => (
+              <option key={sp.id} value={sp.id}>{sp.title}</option>
+            ))}
+            <option value="__archived">已归档对话</option>
+          </select>
+          <button className="icon-btn" onClick={() => void handleNewSpace()} title="新建空间" aria-label="新建空间">
+            <Icon name="plus" />
+          </button>
+          {activeSpaceId !== '' && !showArchived && (
+            <button
+              className="icon-btn danger"
+              onClick={() => void handleDeleteSpace(activeSpaceId)}
+              title="删除当前空间"
+              aria-label="删除当前空间"
+            >
+              <Icon name="trash" />
+            </button>
+          )}
+        </div>
+
+        <button className="btn new-chat" onClick={newChat} title="新对话">
+          <Icon name="plus" />
+          <span className="btn-label">新对话</span>
         </button>
         <div className="session-list">
           {(() => {
-            const childrenByParent = new Map<string, SessionItem[]>()
-            for (const s of sessions) {
-              if (s.parentId) {
-                const arr = childrenByParent.get(s.parentId) ?? []
-                arr.push(s)
-                childrenByParent.set(s.parentId, arr)
-              }
-            }
-            const topLevel = sessions.filter((s) => !s.parentId || !sessions.some((p) => p.id === s.parentId))
+            const { childrenByParent, topLevel } = sessionTree
             const renderItem = (s: SessionItem, isChild: boolean) => (
               <div
                 key={s.id}
@@ -791,18 +935,25 @@ export function App() {
                       {isChild && <span className="child-mark">⤷ </span>}
                       {s.title || s.preview || s.id.slice(0, 12)}
                     </div>
+                    {/* 只留时间：事件数是开发者视角的指标，用户不关心 */}
                     <div className="session-meta">
-                      {s.eventCount} 事件 · {s.createdAt ? new Date(s.createdAt).toLocaleString('zh-CN') : ''}
+                      {s.createdAt ? new Date(s.createdAt).toLocaleString('zh-CN') : ''}
                     </div>
                   </button>
                 )}
                 <div className="session-actions">
                   {s.archived ? (
-                    <button className="sa-btn" onClick={() => void handleRestore(s.id)} title="恢复">↩</button>
+                    <button className="sa-btn" onClick={() => void handleRestore(s.id)} title="恢复" aria-label="恢复">
+                      <Icon name="undo" />
+                    </button>
                   ) : (
-                    <button className="sa-btn" onClick={() => void handleArchive(s.id)} title="归档">📁</button>
+                    <button className="sa-btn" onClick={() => void handleArchive(s.id)} title="归档" aria-label="归档">
+                      <Icon name="archive" />
+                    </button>
                   )}
-                  <button className="sa-btn danger" onClick={() => void handleDelete(s.id)} title="删除">🗑</button>
+                  <button className="sa-btn danger" onClick={() => void handleDelete(s.id)} title="删除" aria-label="删除">
+                    <Icon name="trash" />
+                  </button>
                 </div>
               </div>
             )
@@ -811,26 +962,64 @@ export function App() {
               ...(childrenByParent.get(s.id) ?? []).map((c) => renderItem(c, true)),
             ])
           })()}
-          {sessions.length === 0 && <div className="empty-hint">{showArchived ? '暂无归档对话' : '暂无会话'}</div>}
+          {sessions.length === 0 && (
+            <div className="empty-hint">
+              {showArchived
+                ? '还没有归档的对话。归档后的对话会集中在这里。'
+                : '还没有对话。在下方描述一个任务，我就会开始。'}
+            </div>
+          )}
         </div>
-        <button className="btn settings-btn" onClick={() => setPage('knowledge')}>
-          📚 知识库
-        </button>
-        <button className="btn settings-btn" onClick={() => setShowSettings(true)}>
-          ⚙ 设置
-        </button>
+        <div className="sidebar-foot">
+          <button
+            className={`rail-btn nav-knowledge${page === 'knowledge' ? ' active' : ''}`}
+            onClick={() => morph(() => setPage('knowledge'), 'knowledge')}
+            title="知识库"
+          >
+            <Icon name="book" />
+            <span className="rail-label">知识库</span>
+          </button>
+          <button
+            className="rail-btn nav-settings"
+            onClick={() => morph(() => setShowSettings(true), 'settings')}
+            title="设置"
+          >
+            <Icon name="sliders" />
+            <span className="rail-label">设置</span>
+          </button>
+          <button className="rail-btn" onClick={toggleTheme} title="切换主题">
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+            <span className="rail-label">{theme === 'dark' ? '浅色' : '暗色'}</span>
+          </button>
+        </div>
       </aside>
 
       {page === 'knowledge' ? (
-        <KnowledgePage config={config} onSave={saveConfigPatch} onToast={showToast} onBack={() => setPage('chat')} />
+        <KnowledgePage config={config} onSave={saveConfigPatch} onToast={showToast} onBack={() => morph(() => setPage('chat'))} />
       ) : (
       <main className="main">
         <header className="topbar">
-          <span>对话 · 工作 · 交付</span>
+          <span className="topbar-title">
+            {messages.length === 0
+              ? '新对话'
+              : (sessions.find((s) => s.id === sessionIdRef.current)?.title
+                || sessions.find((s) => s.id === sessionIdRef.current)?.preview
+                || '当前对话')}
+          </span>
           {config.model && <span className="model-badge">{config.model}</span>}
         </header>
 
-        <div className="messages" ref={messagesRef} onScroll={handleMessagesScroll}>
+        {/* 流式回答对读屏软件原本完全静默：live region 加在列表容器上，
+            不落到逐 token 变化的元素，避免每个 token 都触发一次朗读。 */}
+        <div
+          className="messages"
+          ref={messagesRef}
+          onScroll={handleMessagesScroll}
+          data-empty={messages.length === 0 ? 'true' : undefined}
+          role="log"
+          aria-live="polite"
+          aria-label="对话消息"
+        >
           {messages.length === 0 && (
             config.apiKey ? (
               <div className="welcome">
@@ -848,86 +1037,76 @@ export function App() {
               </div>
             ) : (
               <div className="setup-guide">
-                <div className="setup-kicker">首次使用</div>
-                <h2>先连接你的模型</h2>
-                <p>配置 API Key 和模型后，即可开始对话、执行任务并获得交付结果。</p>
-                <button className="btn primary setup-btn" onClick={() => setShowSettings(true)}>
-                  打开设置
-                </button>
+                <div className="setup-copy">
+                  <div className="setup-kicker">首次使用</div>
+                  <h2>先连接你的模型</h2>
+                  <p>配置 API Key 和模型后，即可开始对话、执行任务并获得交付结果。</p>
+                  <button className="btn primary setup-btn" onClick={() => setShowSettings(true)}>
+                    打开设置
+                    <Icon name="chevron-right" size={15} />
+                  </button>
+                </div>
+                <ol className="setup-steps">
+                  <li>
+                    <span className="step-idx">01</span>
+                    <span className="step-title">填入 API Key</span>
+                    <span className="step-desc">设置 → 模型 → 主模型</span>
+                  </li>
+                  <li>
+                    <span className="step-idx">02</span>
+                    <span className="step-title">选择模型名</span>
+                    <span className="step-desc">默认用它理解任务、调用工具</span>
+                  </li>
+                  <li>
+                    <span className="step-idx">03</span>
+                    <span className="step-title">回到这里下任务</span>
+                    <span className="step-desc">在下方输入框描述目标即可</span>
+                  </li>
+                </ol>
               </div>
             )
           )}
           {messages.map((m) => (
-            <MessageBubble
+            <MemoMessageBubble
               key={m.id}
               msg={m}
-              onPreview={(path) => setPreviewPath(path)}
+              onPreview={(path, line) => setPreviewTarget({ path, line })}
               onFork={sessionIdRef.current ? () => void handleFork(sessionIdRef.current!) : undefined}
             />
           ))}
-          {error && <div className="error-banner">✗ {error}</div>}
+          {error && <div className="error-banner" role="alert"><Icon name="alert" /> {error}</div>}
           {!autoScroll && messages.length > 0 && (
             <button className="jump-latest" onClick={jumpToLatest}>
-              ↓ 新消息
+              <Icon name="chevron-down" /> 新消息
             </button>
           )}
           <div ref={bottomRef} />
         </div>
 
         <div className={`composer${dragging ? ' dragging' : ''}`}>
-          <div className="composer-tools">
-            <button className="btn attach-pick" title="选择文件（可多选）" onClick={() => fileInputRef.current?.click()}>
-              📎 选择文件
-            </button>
-            <button className="btn attach-pick" title="选择整个文件夹导入" onClick={() => folderInputRef.current?.click()}>
-              📂 选择文件夹
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              style={{ display: 'none' }}
-              onChange={(e) => handleSelectFiles(e.target.files, false)}
-            />
-            <input
-              ref={folderInputRef}
-              type="file"
-              multiple
-              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
-              style={{ display: 'none' }}
-              onChange={(e) => handleSelectFiles(e.target.files, true)}
-            />
-            <select
-              className="ref-select"
-              value={refSessionId}
-              onChange={(e) => setRefSessionId(e.target.value)}
-              title="选择要作为参考上下文的对话（注入其记录与私有记忆）"
-            >
-              <option value="">不加参考对话</option>
-              {sessions
-                .filter((s) => s.id !== sessionIdRef.current)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title || s.preview || `对话 ${String(s.id).slice(0, 8)}`}
-                  </option>
-                ))}
-            </select>
-          </div>
           {(fileLinks.length > 0 || attachments.length > 0) && (
             <div className="attach-row">
               {fileLinks.map((f) => (
                 <span key={f.path} className="attach-chip file" title={f.path}>
-                  <a onClick={() => setPreviewPath(f.path)}>{f.name}</a>
-                  <button className="chip-x" onClick={() => setFileLinks((prev) => prev.filter((x) => x.path !== f.path))}>
-                    ×
+                  <a onClick={() => setPreviewTarget({ path: f.path })}>{f.name}</a>
+                  <button
+                    className="chip-x"
+                    aria-label="移除文件"
+                    onClick={() => setFileLinks((prev) => prev.filter((x) => x.path !== f.path))}
+                  >
+                    <Icon name="close" size={14} />
                   </button>
                 </span>
               ))}
               {attachments.map((_a, i) => (
                 <span key={i} className="attach-chip image">
-                  🖼 图片 {i + 1}
-                  <button className="chip-x" onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}>
-                    ×
+                  <Icon name="image" /> 图片 {i + 1}
+                  <button
+                    className="chip-x"
+                    aria-label="移除图片"
+                    onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                  >
+                    <Icon name="close" size={14} />
                   </button>
                 </span>
               ))}
@@ -940,7 +1119,7 @@ export function App() {
               if (e.key === 'Enter' && e.ctrlKey) {
                 e.preventDefault()
                 void send()
-              } else if (e.key === 'Enter' && !e.shiftKey) {
+              } else if (isSubmitEnter(e) && !e.shiftKey) {
                 e.preventDefault()
                 void send()
               }
@@ -949,39 +1128,102 @@ export function App() {
             rows={2}
             disabled={running}
           />
-          {running ? (
-            <button className="btn stop-btn" onClick={() => abortRef.current?.abort()}>
-              ■ 停止
-            </button>
-          ) : (
-            <button
-              className="btn send-btn"
-              onClick={() => void send()}
-              disabled={!input.trim() && fileLinks.length === 0 && attachments.length === 0}
-            >
-              发送
-            </button>
-          )}
+          <div className="composer-bar">
+            <div className="composer-tools">
+              {/* 只有图标：title 不足以作为无障碍名，补 aria-label */}
+              <button className="icon-btn" title="选择文件（可多选）" aria-label="选择文件（可多选）" onClick={() => fileInputRef.current?.click()}>
+                <Icon name="paperclip" />
+              </button>
+              <button className="icon-btn" title="选择整个文件夹导入" aria-label="选择整个文件夹导入" onClick={() => folderInputRef.current?.click()}>
+                <Icon name="folder-open" />
+              </button>
+              <input
+                ref={fileInputRef}
+                className="file-input"
+                type="file"
+                multiple
+                onChange={(e) => handleSelectFiles(e.target.files, false)}
+              />
+              <input
+                ref={folderInputRef}
+                className="file-input"
+                type="file"
+                multiple
+                {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+                onChange={(e) => handleSelectFiles(e.target.files, true)}
+              />
+              <select
+                className="ref-select"
+                value={refSessionId}
+                onChange={(e) => setRefSessionId(e.target.value)}
+                title="选择要作为参考上下文的对话（注入其记录与私有记忆）"
+              >
+                <option value="">不加参考对话</option>
+                {sessions
+                  .filter((s) => s.id !== sessionIdRef.current)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title || s.preview || `对话 ${String(s.id).slice(0, 8)}`}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            {running ? (
+              <button
+                className="btn stop-btn"
+                onClick={handleStop}
+              >
+                <Icon name="stop" /> 停止
+              </button>
+            ) : (
+              <button
+                className="btn send-btn"
+                onClick={() => void send()}
+                disabled={!input.trim() && fileLinks.length === 0 && attachments.length === 0}
+              >
+                发送
+              </button>
+            )}
+          </div>
         </div>
       </main>
       )}
 
-      {showSettings && <SettingsModal config={config} onSave={saveConfigPatch} onToast={showToast} onClose={() => setShowSettings(false)} />}
-      {previewPath && <FilePreview path={previewPath} onClose={() => setPreviewPath(null)} />}
+      {showSettings && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            config={config}
+            onSave={saveConfigPatch}
+            onToast={showToast}
+            onClose={() => morph(() => setShowSettings(false), 'settings')}
+          />
+        </Suspense>
+      )}
+      {previewTarget && (
+        <Suspense fallback={null}>
+          <FilePreview
+            path={previewTarget.path}
+            line={previewTarget.line}
+            onClose={() => morph(() => setPreviewTarget(null), 'preview')}
+          />
+        </Suspense>
+      )}
       {subChat && (
         <SubChatWindow
           subChat={subChat}
-          onClose={() => setSubChat(null)}
+          onClose={() => morph(() => setSubChat(null), 'subchat')}
           onMerged={(parentId) => void handleMerged(parentId)}
-          onPreview={(path) => setPreviewPath(path)}
+          onPreview={(path, line) => setPreviewTarget({ path, line })}
         />
       )}
+      {/* 工作区面板（终端 + 网页预览）：自带开关，不改动既有布局 */}
+      <WorkspaceDock messages={messages} />
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   )
 }
 
-function MessageBubble({ msg, onPreview, onFork }: { msg: ChatMessage; onPreview: (path: string) => void; onFork?: () => void }) {
+function MessageBubble({ msg, onPreview, onFork }: { msg: ChatMessage; onPreview: PreviewHandler; onFork?: () => void }) {
   if (msg.role === 'user') {
     return (
       <div className="msg user">
@@ -1007,8 +1249,7 @@ function MessageBubble({ msg, onPreview, onFork }: { msg: ChatMessage; onPreview
     return (
       <div className="msg assistant">
         <div className={`bubble ${msg.error ? 'err' : ''}`}>
-          {msg.trace && msg.trace.length > 0 && <TraceBlock trace={msg.trace} running={msg.running === true} />}
-          <AssistantContent msg={msg} onPreview={onPreview} />
+          <TraeAssistant msg={msg} onPreview={onPreview} />
           {msg.finishedReason && (
             <div className="delivery">
               <span className="badge ok">交付完成</span>
@@ -1030,314 +1271,164 @@ function MessageBubble({ msg, onPreview, onFork }: { msg: ChatMessage; onPreview
   return null
 }
 
-/** 执行过程折叠区块：默认折叠，点击展开查看 step/tool 调用详情。 */
-function TraceBlock({ trace, running }: { trace: TraceItem[]; running: boolean }) {
-  const [expanded, setExpanded] = useState(false)
-  const toolCount = trace.filter((t) => t.type === 'tool').length
+/**
+ * memo 化的消息气泡。
+ *
+ * 比较函数刻意只看 msg 本身：onPreview / onFork 是内联箭头函数，每次渲染都是新引用，
+ * 用默认的浅比较等于白 memo。msg 全程走不可变更新（内容变了就是新对象），
+ * 所以「引用相同 = 内容未变」成立；另外 onFork 的有无要参与比较，否则会话 id 出现后按钮不刷新。
+ */
+const MemoMessageBubble = memo(
+  MessageBubble,
+  (prev, next) => prev.msg === next.msg && Boolean(prev.onFork) === Boolean(next.onFork),
+)
+
+/** Trae 风格助手消息：顶部统计 → 三份并列结构（调用 / 临时说明 / 结论），过程性内容独立成块，不污染结论。 */
+function TraeAssistant({ msg, onPreview }: { msg: ChatMessage; onPreview: PreviewHandler }) {
+  const running = msg.running === true
+  // 默认一律收起（运行中也收起）：过程细节不该默认铺满屏幕，用户点了才展开、才渲染。
+  // 实时反馈交给「调用」折叠标题里的「进行中…」，它不依赖展开状态。
+  const [traceOpen, setTraceOpen] = useState(false)
+  const [thinkingOpen, setThinkingOpen] = useState(false)
+  const [briefOpen, setBriefOpen] = useState(false)
+  const trace = msg.trace ?? []
   const stepCount = trace.filter((t) => t.type === 'step').length
+  const toolCount = trace.filter((t) => t.type === 'tool').length
+  const hasTrace = stepCount > 0 || toolCount > 0
+  const thinking = msg.thinking ?? ''
+  const brief = msg.brief ?? ''
+  const content = msg.content ?? ''
+  // 展开「调用」时也只渲染最近若干条：一次长任务可能有几十次工具调用，
+  // 全量渲染既拖慢主线程，也会把真正要看的结论挤下去。
+  const TRACE_SHOWN = 15
+  const traceStart = Math.max(0, trace.length - TRACE_SHOWN)
+  const traceShown = trace.slice(traceStart)
+  // 流式期间（running）对 thinking 只渲染前缀预览，避免超长推理内容每收一个 token 都全量重解析，
+  // 否则渐增大文本 × 频繁重渲染 = O(n²)，会让浏览器渲染进程内存耗尽（Out of Memory）。
+  const THINKING_PREVIEW_MAX = 2000
+  // 展开时对超长推理也留一个上限：单次渲染几十万字同样会卡住主线程
+  const THINKING_RENDER_MAX = 20_000
+  const thinkingRaw = running && thinking.length > THINKING_PREVIEW_MAX ? `${thinking.slice(0, THINKING_PREVIEW_MAX)}…` : thinking
+  const thinkingShown =
+    thinkingRaw.length > THINKING_RENDER_MAX ? `${thinkingRaw.slice(0, THINKING_RENDER_MAX)}\n\n…（已省略 ${thinkingRaw.length - THINKING_RENDER_MAX} 字）` : thinkingRaw
 
   return (
-    <div className="trace-block">
-      <button className="trace-toggle" onClick={() => setExpanded(!expanded)}>
-        {expanded ? '▾' : '▸'} 执行过程（{stepCount} 步 · {toolCount} 次工具调用）
-        {running && <span className="trace-running"> · 进行中…</span>}
-      </button>
-      {expanded && (
-        <div className="trace-detail">
-          {trace.map((item, i) => {
-            if (item.type === 'step') {
-              return (
-                <div key={i} className="trace-step">
-                  ▶ 第 {item.step} 步：调用模型
-                </div>
-              )
-            }
-            return (
-              <div key={i} className="trace-tool">
-                <div className="tool-name">🔧 {item.toolName}</div>
-                {item.toolArgs && <div className="tool-args">{item.toolArgs}</div>}
-                {item.toolResult !== undefined && (
-                  <div className={`tool-result ${item.toolResult.startsWith('错误') ? 'err' : ''}`}>{item.toolResult}</div>
-                )}
-              </div>
-            )
-          })}
+    <div className="trae-asst">
+      {/* 步数 / 工具次数是开发者视角的指标，不常驻消息顶部：并入「调用」折叠标题。
+          进行中反馈保留：已有调用记录时挂在标题上，还没有记录时单独占一行。 */}
+      {running && !hasTrace && (
+        <div className="trae-stats">
+          <span className="trace-running">进行中…</span>
         </div>
+      )}
+
+      {/* 任务书：本轮执行前对用户指令的结构化改写（目标/交付物/约束/验收/步骤），默认收起 */}
+      {brief && (
+        <div className="trae-section">
+          <button className="trae-section-toggle" onClick={() => setBriefOpen(!briefOpen)} aria-expanded={briefOpen}>
+            <span className="trae-section-name">任务书</span>
+            <span className="trae-caret">{briefOpen ? '▾' : '▸'}</span>
+          </button>
+          {briefOpen && (
+            <div className="trae-thinking-body">
+              <Markdown text={brief} onPreview={onPreview} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 调用：工具命令与回复过程 */}
+      {hasTrace && (
+        <div className="trae-section">
+          <button className="trae-section-toggle" onClick={() => setTraceOpen(!traceOpen)} aria-expanded={traceOpen}>
+            <span className="trae-section-name">
+              {`调用（${stepCount} 步 · ${toolCount} 次工具${running ? ' · 进行中…' : ''}）`}
+            </span>
+            <span className="trae-caret">{traceOpen ? '▾' : '▸'}</span>
+          </button>
+          {traceOpen && (
+            <div className="trae-tools">
+              {traceStart > 0 && (
+                <div className="trae-step">
+                  <span className="trae-step-label">更早的 {traceStart} 条已省略</span>
+                </div>
+              )}
+              {traceShown.map((item, i) =>
+                item.type === 'step' ? (
+                  <div key={traceStart + i} className="trae-step">
+                    <span className="trae-step-idx">第 {item.step} 步</span>
+                    <span className="trae-step-label">调用模型</span>
+                  </div>
+                ) : (
+                  <div key={traceStart + i} className="trae-tool">
+                    <div className="trae-tool-name"><Icon name="terminal" /> {item.toolName}</div>
+                    {item.toolArgs && <div className="trae-tool-args">{item.toolArgs}</div>}
+                    {item.toolResult !== undefined && (
+                      <div className={`trae-tool-result ${item.toolResult.startsWith('错误') ? 'err' : ''}`}>{item.toolResult}</div>
+                    )}
+                  </div>
+                ),
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 临时说明：过程性思考，独立成块，避免污染结论 */}
+      {thinking && (
+        <div className="trae-section">
+          <button className="trae-section-toggle" onClick={() => setThinkingOpen(!thinkingOpen)} aria-expanded={thinkingOpen}>
+            <span className="trae-section-name">
+              {`临时说明（${
+                thinking.length >= 1000 ? `${(thinking.length / 1000).toFixed(1)}k` : thinking.length
+              } 字）`}
+            </span>
+            <span className="trae-caret">{thinkingOpen ? '▾' : '▸'}</span>
+          </button>
+          {thinkingOpen && <div className="trae-thinking-body"><Markdown text={thinkingShown} onPreview={onPreview} /></div>}
+        </div>
+      )}
+
+      {/* 结论：最终回复；存在调用/临时说明时带「结论」标签，纯文本消息直接展示 */}
+      {(hasTrace || thinking) && (content || msg.error) && (
+        <div className="trae-conclusion">
+          <span className="trae-conclusion-label">结论</span>
+          <AssistantContent msg={msg} onPreview={onPreview} />
+        </div>
+      )}
+      {!hasTrace && !thinking && (content || msg.error) && (
+        <AssistantContent msg={msg} onPreview={onPreview} />
       )}
     </div>
   )
 }
 
-/** 助手内容：长结果默认折叠展示（最终输出折叠），点击展开完整内容。 */
-function AssistantContent({ msg, onPreview }: { msg: ChatMessage; onPreview: (path: string) => void }) {
-  const [expanded, setExpanded] = useState(false)
+/** 助手内容：正文始终完整渲染，不做字符级截断。
+ *  流式期间传 foldLimit=null（内容随生成增长，不冻结）；
+ *  仅当已结束且块数超阈值时才折叠，且截断点由渲染引擎保证落在块边界。 */
+function AssistantContent({ msg, onPreview }: { msg: ChatMessage; onPreview: PreviewHandler }) {
   const content = msg.content ?? ''
-  const long = content.length > 400
-  const shown = long && !expanded ? `${content.slice(0, 300)}…` : content
-  // 骨架屏仅在「实时生成中且无执行过程」时显示：纯文本阶段表示 AI 输入中；
-  // 有工具调用时以折叠的执行过程行表达进行中，避免占位动画与折叠块冲突
   const isRunning = msg.running === true
   const hasTrace = (msg.trace?.length ?? 0) > 0
-  return (
-    <>
-      {shown ? (
-        <div className="assistant-content">{renderMarkdown(shown, onPreview)}</div>
-      ) : isRunning && !hasTrace ? (
-        <div className="assistant-skeleton" aria-label="正在生成回复">
-          <span />
-          <span />
-          <span />
-        </div>
-      ) : null}
-      {long && (
-        <button className="fold-toggle" onClick={() => setExpanded(!expanded)}>
-          {expanded ? '收起 ↑' : `展开 ↓（完整 ${content.length} 字符）`}
-        </button>
-      )}
-    </>
-  )
-}
-
-interface MarkdownTableData {
-  headers: string[]
-  rows: string[][]
-}
-
-function renderMarkdown(text: string, onPreview: (path: string) => void) {
-  const lines = text.split(/\r?\n/)
-  const blocks: JSX.Element[] = []
-  let i = 0
-  while (i < lines.length) {
-    if (!lines[i].trim()) {
-      i += 1
-      continue
-    }
-    const block = parseMarkdownTableBlock(lines.slice(i))
-    if (block) {
-      blocks.push(<MarkdownTable key={`table-${i}`} table={block.table} />)
-      i += block.consumed
-      continue
-    }
-    const fence = /^\s*```(\w+)?\s*$/.exec(lines[i])
-    if (fence) {
-      const code: string[] = []
-      i += 1
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) code.push(lines[i++])
-      if (i < lines.length) i += 1
-      blocks.push(<pre key={`code-${i}`} data-language={fence[1] || undefined}><code>{code.join('\n')}</code></pre>)
-      continue
-    }
-    const heading = /^\s*(#{1,6})\s+(.+?)\s*$/.exec(lines[i])
-    if (heading) {
-      const level = Math.min(6, heading[1].length)
-      const Heading = `h${level}` as keyof JSX.IntrinsicElements
-      blocks.push(<Heading key={`heading-${i}`}>{renderInlineMarkdown(heading[2], onPreview)}</Heading>)
-      i += 1
-      continue
-    }
-    if (/^\s*[-*+]\s+/.test(lines[i]) || /^\s*\d+[.)]\s+/.test(lines[i])) {
-      const ordered = /^\s*\d+[.)]\s+/.test(lines[i])
-      const items: string[] = []
-      while (i < lines.length) {
-        const match = ordered ? /^\s*\d+[.)]\s+(.+)$/.exec(lines[i]) : /^\s*[-*+]\s+(.+)$/.exec(lines[i])
-        if (!match) break
-        items.push(match[1])
-        i += 1
-      }
-      const List = ordered ? 'ol' : 'ul'
-      blocks.push(<List key={`list-${i}`}>{items.map((item, index) => <li key={index}>{renderInlineMarkdown(item, onPreview)}</li>)}</List>)
-      continue
-    }
-    const paragraph: string[] = [lines[i]]
-    i += 1
-    while (i < lines.length && lines[i].trim() && !parseMarkdownTableBlock(lines.slice(i)) && !/^\s*```/.test(lines[i]) && !/^\s*#{1,6}\s+/.test(lines[i])) {
-      paragraph.push(lines[i])
-      i += 1
-    }
-    blocks.push(<p key={`paragraph-${i}`}>{renderInlineMarkdown(paragraph.join('\n'), onPreview)}</p>)
-  }
-  return blocks
-}
-
-function renderInlineMarkdown(text: string, onPreview: (path: string) => void) {
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g)
-  return parts.map((part, index) => {
-    const file = /^`([^`]+\.(?:md|txt|json|ya?ml|ts|tsx|js|jsx|css|html|csv))`$/i.exec(part)
-    if (file) return <button key={index} className="file-link" onClick={() => onPreview(file[1])}>{file[1]}</button>
-    if (/^`[^`]+`$/.test(part)) return <code key={index}>{part.slice(1, -1)}</code>
-    if (/^\*\*[^*]+\*\*$/.test(part) || /^__[^_]+__$/.test(part)) return <strong key={index}>{part.slice(2, -2)}</strong>
-    if (/^\*[^*]+\*$/.test(part) || /^_[^_]+_$/.test(part)) return <em key={index}>{part.slice(1, -1)}</em>
-    return <span key={index}>{part.split('\n').map((line, lineIndex) => <span key={lineIndex}>{line}{lineIndex < part.split('\n').length - 1 && <br />}</span>)}</span>
-  })
-}
-
-function parseMarkdownTableBlock(lines: string[]): { table: MarkdownTableData; consumed: number } | null {
-  if (lines.length < 2 || !/^\s*\|.*\|\s*$/.test(lines[0]) || !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[1])) {
-    return null
-  }
-  const split = (line: string) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim())
-  const headers = split(lines[0])
-  const rows: string[][] = []
-  let consumed = 2
-  while (consumed < lines.length && /^\s*\|.*\|\s*$/.test(lines[consumed])) {
-    rows.push(split(lines[consumed]))
-    consumed += 1
-  }
-  return { table: { headers, rows }, consumed }
-}
-
-function MarkdownTable({ table }: { table: MarkdownTableData }) {
-  return (
-    <div className="markdown-table-wrap">
-      <table className="markdown-table">
-        <thead><tr>{table.headers.map((cell, i) => <th key={i}>{cell}</th>)}</tr></thead>
-        <tbody>{table.rows.map((row, i) => <tr key={i}>{table.headers.map((_, j) => <td key={j}>{row[j] ?? ''}</td>)}</tr>)}</tbody>
-      </table>
-    </div>
-  )
-}
-
-function escapeHtml(str: string): string {
-  return str.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
-}
-
-/** 清除上传文件可能携带的脚本/事件属性，本地工具仍按不可信输入处理。 */
-function sanitizeOfficeHtml(html: string): string {
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  doc.querySelectorAll('script,style,iframe,object,embed,link,meta,base').forEach((el) => el.remove())
-  doc.querySelectorAll('*').forEach((el) => {
-    for (const attr of Array.from(el.attributes)) {
-      const name = attr.name.toLowerCase()
-      if (name.startsWith('on')) el.removeAttribute(attr.name)
-      else if ((name === 'href' || name === 'src' || name === 'xlink:href') && /^\s*javascript:/i.test(attr.value)) el.removeAttribute(attr.name)
-      else if (name === 'data-v' || name === 'data-t' || name === 'id') el.removeAttribute(attr.name)
-    }
-  })
-  return doc.body.innerHTML
-}
-
-function FilePreview({ path, onClose }: { path: string; onClose: () => void }) {
-  const [content, setContent] = useState('')
-  const [error, setError] = useState('')
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  const [officeSheets, setOfficeSheets] = useState<Array<{ name: string; html: string }>>([])
-  const [pptxFile, setPptxFile] = useState<Blob | null>(null)
-  const [pptxCount, setPptxCount] = useState(0)
-  const [pptxIndex, setPptxIndex] = useState(0)
-  const pptxRef = useRef<PresentationViewerHandle | null>(null)
-  const isPdf = /\.pdf$/i.test(path)
-  const isDocx = /\.docx$/i.test(path)
-  const isXlsx = /\.(xlsx|xls)$/i.test(path)
-  const isPptx = /\.pptx$/i.test(path)
-  const isBinary = isPdf || isDocx || isXlsx || isPptx
-  const isText = !isBinary
-
-  useEffect(() => {
-    let cancelled = false
-    setContent('')
-    setError('')
-    setPdfUrl(null)
-    setOfficeSheets([])
-    setPptxFile(null)
-    setPptxCount(0)
-    setPptxIndex(0)
-    if (isText) {
-      void apiFetch(`/api/files/preview?path=${encodeURIComponent(path)}`)
-        .then(async (res) => {
-          const data = (await res.json()) as { content?: string; error?: string }
-          if (!res.ok) throw new Error(data.error ?? `预览失败（HTTP ${res.status}）`)
-          if (!cancelled) setContent(data.content ?? '')
-        })
-        .catch((err: unknown) => {
-          if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-        })
-      return () => { cancelled = true }
-    }
-    // 二进制格式：先经 raw=1 获取原始字节，再按扩展名在浏览器端渲染
-    void apiFetch(`/api/files/preview?path=${encodeURIComponent(path)}&raw=1`)
-      .then(async (res) => {
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string }
-          throw new Error(data.error ?? `预览失败（HTTP ${res.status}）`)
-        }
-        const blob = await res.blob()
-        if (cancelled) return
-        if (isPdf) {
-          setPdfUrl(URL.createObjectURL(blob))
-          return
-        }
-        if (isPptx) {
-          setPptxFile(blob)
-          return
-        }
-        const arrayBuffer = await blob.arrayBuffer()
-        if (isDocx) {
-          // mammoth 浏览器端 .docx → 安全的 HTML
-          const result = await mammoth.convertToHtml({ arrayBuffer })
-          if (!cancelled) setOfficeSheets([{ name: '', html: sanitizeOfficeHtml(result.value) }])
-          return
-        }
-        if (isXlsx) {
-          // SheetJS 读取 .xlsx/.xls → 逐工作表转 HTML 表格
-          const wb = XLSX.read(arrayBuffer, { type: 'array' })
-          const sheets = wb.SheetNames.map((name) => {
-            const ws = wb.Sheets[name]
-            const table = (XLSX.utils.sheet_to_html(ws).match(/<table[\s\S]*<\/table>/i)?.[0]) ?? ''
-            return { name, html: sanitizeOfficeHtml(table) }
-          })
-          if (!cancelled) setOfficeSheets(sheets)
-          return
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      })
-    return () => { cancelled = true }
-  }, [path, isPdf, isDocx, isXlsx, isPptx, isText])
-
-  useEffect(() => {
-    return () => {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl)
-    }
-  }, [pdfUrl])
-
-  return (
-    <div className="modal-mask" onClick={onClose}>
-      <div className="modal file-preview-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="file-preview-head"><strong>{path}</strong><button className="btn-link" onClick={onClose}>关闭</button></div>
-        {error ? (
-          <div className="error-banner">✗ {error}</div>
-        ) : isPdf && pdfUrl ? (
-          <iframe title="PDF 预览" src={pdfUrl} className="pdf-frame" />
-        ) : isPptx && pptxFile ? (
-          <div className="office-frame">
-            <div className="ppt-toolbar">
-              <button className="btn-link ppt-nav" disabled={pptxIndex <= 0} onClick={() => pptxRef.current?.previous()} title="上一页">‹ 上一页</button>
-              <span className="ppt-counter">{pptxCount > 0 ? `第 ${pptxIndex + 1} / ${pptxCount} 页` : '加载中…'}</span>
-              <button className="btn-link ppt-nav" disabled={pptxCount <= 0 || pptxIndex >= pptxCount - 1} onClick={() => pptxRef.current?.next()} title="下一页">下一页 ›</button>
-            </div>
-            <div className="ppt-stage">
-              <PresentationViewer ref={pptxRef} src={pptxFile} wasm={pptxWasmUrl} width="100%" height="100%" onLoad={(info) => setPptxCount(info.slideCount)} onSlideChange={(i) => setPptxIndex(i)} />
-            </div>
-          </div>
-        ) : officeSheets.length ? (
-          <div className="file-preview-office">
-            {officeSheets.map((sheet, i) => (
-              <section key={i} className="office-sheet">
-                {sheet.name ? <h4 className="office-sheet-title">{escapeHtml(sheet.name)}</h4> : null}
-                <div className="office-sheet-body" dangerouslySetInnerHTML={{ __html: sheet.html }} />
-              </section>
-            ))}
-          </div>
-        ) : isText ? (
-          <pre className="file-preview-content">{content || '加载中…'}</pre>
-        ) : (
-          <div className="file-preview-content">加载中…</div>
-        )}
+  if (content) {
+    return (
+      <div className="assistant-content">
+        <Markdown text={content} onPreview={onPreview} foldLimit={isRunning ? null : FOLD_BLOCK_LIMIT} />
       </div>
-    </div>
-  )
+    )
+  }
+  if (isRunning && !hasTrace) {
+    return (
+      <div className="assistant-skeleton" aria-label="正在生成回复">
+        <span />
+        <span />
+        <span />
+      </div>
+    )
+  }
+  return null
 }
+
 
 /** 独立子对话窗口：继承父会话历史，独立演进，可合并结论回主对话。 */
 function SubChatWindow({
@@ -1349,23 +1440,34 @@ function SubChatWindow({
   subChat: { sessionId: string; parentId: string }
   onClose: () => void
   onMerged: (parentId: string) => void
-  onPreview: (path: string) => void
+  onPreview: PreviewHandler
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [running, setRunning] = useState(false)
   const [merging, setMerging] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  /** 本轮对话的服务端 runId：点「停止」时带着它请求服务端取消。 */
+  const runIdRef = useRef('')
 
   const loadEvents = useCallback(async (id: string) => {
     const res = await apiFetch(`/api/sessions/${encodeURIComponent(id)}/events`)
     if (!res.ok) return
     const data = (await res.json()) as { events: Array<{ type: string; payload: unknown }> }
-    setMessages(rebuildMessages(data.events))
+    setMessages(rebuildMessages(data.events, undefined, nextId))
   }, [])
 
   useEffect(() => {
     void loadEvents(subChat.sessionId)
+    // 子会话补挂：与主对话同一套逻辑——刷新或重开窗口后，
+    // 按 sessionId 去 /api/chat/active 匹配仍在跑的轮次，把「停止」挂回去。
+    void (async () => {
+      const runs = await listActiveRuns()
+      const hit = runs.find((r) => r.sessionId === subChat.sessionId)
+      if (!hit) return
+      runIdRef.current = hit.runId
+      setRunning(true)
+    })()
   }, [subChat.sessionId, loadEvents])
 
   async function send() {
@@ -1378,6 +1480,8 @@ function SubChatWindow({
     setMessages((prev) => [...prev, userMsg, assistantMsg])
     const controller = new AbortController()
     abortRef.current = controller
+    const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    runIdRef.current = runId
     const patchAssistant = (fn: (m: ChatMessage) => ChatMessage) => {
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === assistantMsg.id)
@@ -1391,7 +1495,7 @@ function SubChatWindow({
       const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, sessionId: subChat.sessionId }),
+        body: JSON.stringify({ message, sessionId: subChat.sessionId, runId }),
         signal: controller.signal,
       })
       if (!res.ok || !res.body) throw new Error(`请求失败（HTTP ${res.status}）`)
@@ -1408,7 +1512,13 @@ function SubChatWindow({
         for (const line of lines) {
           if (line.startsWith('event:')) event = line.slice(6).trim()
           else if (line.startsWith('data:')) {
-            const data = JSON.parse(line.slice(5).trim()) as Record<string, unknown>
+            // 坏帧跳过，理由同主对话：一行噪声不该让整轮问答变成「发生错误」
+            let data: Record<string, unknown>
+            try {
+              data = JSON.parse(line.slice(5).trim()) as Record<string, unknown>
+            } catch {
+              continue
+            }
             if (event === 'token') patchAssistant((m) => ({ ...m, content: `${m.content ?? ''}${String(data.text ?? '')}` }))
             else if (event === 'result') {
               patchAssistant((m) => ({ ...m, running: false, steps: Number(data.steps ?? 0), finishedReason: String(data.finishedReason ?? '') }))
@@ -1419,13 +1529,18 @@ function SubChatWindow({
           }
         }
       }
+      // 与主对话一致：流结束却没等到 result 时必须收尾，否则永久停在「生成中」
+      patchAssistant((m) => (m.running ? { ...m, running: false, error: true, content: m.content || '（连接中断，未收到结果）' } : m))
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
+      if ((err as Error).name === 'AbortError') {
+        patchAssistant((m) => (m.running ? { ...m, running: false, content: m.content || '（已停止）' } : m))
+      } else {
         patchAssistant((m) => ({ ...m, running: false, content: m.content || '（发生错误）', error: true }))
       }
     } finally {
       setRunning(false)
       abortRef.current = null
+      runIdRef.current = ''
     }
   }
 
@@ -1452,7 +1567,7 @@ function SubChatWindow({
       </header>
       <div className="subchat-messages">
         {messages.map((m) => (
-          <MessageBubble key={m.id} msg={m} onPreview={onPreview} />
+          <MemoMessageBubble key={m.id} msg={m} onPreview={onPreview} />
         ))}
         {messages.length === 0 && <div className="empty-hint">子对话已继承主对话历史，可在此独立探索。</div>}
       </div>
@@ -1461,7 +1576,8 @@ function SubChatWindow({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // 与主输入框同规则：中文输入法选词的回车不算发送
+            if (isSubmitEnter(e) && !e.shiftKey) {
               e.preventDefault()
               void send()
             }
@@ -1471,562 +1587,25 @@ function SubChatWindow({
           disabled={running}
         />
         {running ? (
-          <button className="btn stop-btn" onClick={() => abortRef.current?.abort()}>■ 停止</button>
+          <button
+            className="btn stop-btn"
+            onClick={() => {
+              void stopChatRun(runIdRef.current)
+              if (abortRef.current) {
+                // 本窗口发起的流：断本地连接，由 send() 的 finally 复位并收尾
+                abortRef.current.abort()
+              } else {
+                // 补挂的轮次（刷新后挂上来的，本窗口没有本地流）：
+                // 服务端已停，这里自行复位状态并重新拉一次事件呈现停止点。
+                runIdRef.current = ''
+                setRunning(false)
+                void loadEvents(subChat.sessionId)
+              }
+            }}
+          ><Icon name="stop" /> 停止</button>
         ) : (
           <button className="btn send-btn" onClick={() => void send()} disabled={!input.trim()}>发送</button>
         )}
-      </div>
-    </div>
-  )
-}
-
-function SettingsModal({
-  config,
-  onSave,
-  onToast,
-  onClose,
-}: {
-  config: WebConfig
-  onSave: (patch: Partial<WebConfig>) => void
-  onToast: (message: string) => void
-  onClose: () => void
-}) {
-  const [form, setForm] = useState<WebConfig>({
-    ...config,
-    models: (config.models ?? []).map((m) => ({ ...m })),
-    imageModel: config.imageModel ? { ...config.imageModel } : undefined,
-    tokenPlan: config.tokenPlan
-      ? {
-          ...config.tokenPlan,
-          textModels: (config.tokenPlan.textModels ?? []).map((m) => ({ ...m })),
-          imageModels: (config.tokenPlan.imageModels ?? []).map((m) => ({ ...m })),
-          videoModels: (config.tokenPlan.videoModels ?? []).map((m) => ({ ...m })),
-          voiceModels: (config.tokenPlan.voiceModels ?? []).map((m) => ({ ...m })),
-          realtimeModels: (config.tokenPlan.realtimeModels ?? []).map((m) => ({ ...m })),
-        }
-      : undefined,
-  })
-  const [tab, setTab] = useState<'main' | 'sub' | 'image' | 'token-plan' | 'env' | 'memory' | 'skills' | 'tools' | 'specs' | 'update'>('main')
-
-  const setField = (key: keyof WebConfig, value: string) => setForm({ ...form, [key]: value })
-
-  const useTempWorkspace = async () => {
-    const dir = await createTempWorkspace()
-    if (!dir) {
-      onToast('创建临时工作区失败')
-      return
-    }
-    setField('workspace', dir)
-    onToast('已生成临时工作区')
-  }
-
-  const pickWorkspace = async () => {
-    const dir = await pickWorkspaceDir()
-    if (dir === null) return // 用户取消或失败
-    setField('workspace', dir)
-    onToast('已选择工作区')
-  }
-
-  const subModels = form.models ?? []
-  const patchSub = (idx: number, patch: Partial<SubModelEntry>) => {
-    const copy = [...subModels]
-    copy[idx] = { ...copy[idx], ...patch }
-    setForm({ ...form, models: copy })
-  }
-  const addSub = () => setForm({ ...form, models: [...subModels, { id: '', model: '', capabilities: ['general'] }] })
-  const removeSub = (idx: number) => setForm({ ...form, models: subModels.filter((_, i) => i !== idx) })
-
-  const img = form.imageModel
-  const patchImg = (patch: Partial<ImageModelEntry>) => setForm({ ...form, imageModel: { model: '', ...(img ?? {}), ...patch } })
-
-  // ===== token-plan 表单辅助 =====
-  const tokenPlan = form.tokenPlan
-  const patchTokenPlan = (patch: Partial<TokenPlanEntry>) => setForm({ ...form, tokenPlan: { ...(tokenPlan ?? {}), ...patch } })
-  const tpText = tokenPlan?.textModels ?? []
-  const tpImage = tokenPlan?.imageModels ?? []
-  const tpVideo = tokenPlan?.videoModels ?? []
-  const tpVoice = tokenPlan?.voiceModels ?? []
-  const tpRealtime = tokenPlan?.realtimeModels ?? []
-  const patchTpText = (idx: number, patch: Partial<TokenPlanTextEntry>) => {
-    const copy = [...tpText]
-    copy[idx] = { ...copy[idx], ...patch }
-    patchTokenPlan({ textModels: copy })
-  }
-  const addTpText = () => patchTokenPlan({ textModels: [...tpText, { id: '', model: '', capabilities: ['general'] }] })
-  const removeTpText = (idx: number) => patchTokenPlan({ textModels: tpText.filter((_, i) => i !== idx) })
-  const patchTpImage = (idx: number, patch: Partial<TokenPlanImageEntry>) => {
-    const copy = [...tpImage]
-    copy[idx] = { ...copy[idx], ...patch }
-    patchTokenPlan({ imageModels: copy })
-  }
-  const addTpImage = () => patchTokenPlan({ imageModels: [...tpImage, { model: '' }] })
-  const removeTpImage = (idx: number) => patchTokenPlan({ imageModels: tpImage.filter((_, i) => i !== idx) })
-  // 视频 / 语音 / Realtime 均为简单的 model+label 条目，复用同一套增删改逻辑
-  type TpSimpleKind = 'videoModels' | 'voiceModels' | 'realtimeModels'
-  const tpSimpleList = (kind: TpSimpleKind) =>
-    kind === 'videoModels' ? tpVideo : kind === 'voiceModels' ? tpVoice : tpRealtime
-  const patchTpSimple = (kind: TpSimpleKind, idx: number, patch: Partial<TokenPlanSimpleEntry>) => {
-    const list = [...tpSimpleList(kind)]
-    list[idx] = { ...list[idx], ...patch }
-    patchTokenPlan({ [kind]: list } as Partial<TokenPlanEntry>)
-  }
-  const addTpSimple = (kind: TpSimpleKind) => {
-    patchTokenPlan({ [kind]: [...tpSimpleList(kind), { model: '' }] } as Partial<TokenPlanEntry>)
-  }
-  const removeTpSimple = (kind: TpSimpleKind, idx: number) => {
-    patchTokenPlan({ [kind]: tpSimpleList(kind).filter((_, i) => i !== idx) } as Partial<TokenPlanEntry>)
-  }
-
-  // ===== 从上游读取 token-plan 模型并自动填入 =====
-  const [tpLoading, setTpLoading] = useState(false)
-  const [tpError, setTpError] = useState('')
-  async function loadTokenPlanModels() {
-    if (!tokenPlan?.apiKey) {
-      setTpError('请先填写 token-plan API Key')
-      return
-    }
-    setTpLoading(true)
-    setTpError('')
-    try {
-      const res = await fetchTokenPlanModels()
-      const patch: Partial<TokenPlanEntry> = {}
-      // 文本子模型：以 model 同时作为 id 唯一标识，能力标签按上游/推断补齐
-      if (res.textModels.length) {
-        patch.textModels = res.textModels.map((m) => ({
-          id: m.model,
-          model: m.model,
-          label: m.label ?? m.model,
-          capabilities: m.capabilities?.length ? m.capabilities : ['general'],
-        }))
-      }
-      // 多模态清单：直接回填对应分类
-      const img = res.builtin
-      patch.imageModels = img.imageModels.map((m) => ({ model: m.model }))
-      patch.videoModels = img.videoModels.slice()
-      patch.voiceModels = img.voiceModels.slice()
-      patch.realtimeModels = img.realtimeModels.slice()
-      patchTokenPlan(patch)
-      setTpError(res.error ? `上游读取失败，已回退内置清单：${res.error}` : '')
-    } catch (e) {
-      setTpError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setTpLoading(false)
-    }
-  }
-
-  function save() {
-    // 过滤无效子模型条目（id 或 model 为空）
-    const models = subModels.filter((m) => m.id.trim() && m.model.trim())
-    const imageModel = img && img.model.trim() ? img : undefined
-    const patch: Partial<WebConfig> = { ...form, models, imageModel }
-    // 服务端返回的是脱敏值（含 ***）：未修改的密钥字段不提交，避免掩码覆盖真实 Key
-    const isMasked = (v?: string) => !!v && v.includes('***')
-    if (isMasked(patch.apiKey)) delete patch.apiKey
-    patch.models = models.map((m) => (isMasked(m.apiKey) ? { ...m, apiKey: undefined } : m))
-    if (patch.imageModel && isMasked(patch.imageModel.apiKey)) {
-      patch.imageModel = { ...patch.imageModel, apiKey: undefined }
-    }
-    // token-plan：过滤空条目、脱敏 apiKey
-    if (patch.tokenPlan) {
-      const tp = patch.tokenPlan
-      const textModels = (tp.textModels ?? []).filter((m) => m.id.trim() && m.model.trim())
-      const imageModels = (tp.imageModels ?? []).filter((m) => m.model.trim())
-      const videoModels = (tp.videoModels ?? []).filter((m) => m.model.trim())
-      const voiceModels = (tp.voiceModels ?? []).filter((m) => m.model.trim())
-      const realtimeModels = (tp.realtimeModels ?? []).filter((m) => m.model.trim())
-      const clean: Partial<TokenPlanEntry> = { ...tp, textModels, imageModels, videoModels, voiceModels, realtimeModels }
-      if (isMasked(clean.apiKey)) clean.apiKey = undefined
-      patch.tokenPlan = clean
-    }
-    onSave(patch)
-  }
-
-  const tabs = [
-    { key: 'main' as const, label: '主模型' },
-    { key: 'sub' as const, label: `子模型（${subModels.length}）` },
-    { key: 'image' as const, label: '生图模型' },
-    { key: 'token-plan' as const, label: 'token-plan' },
-    { key: 'specs' as const, label: '专业化' },
-    { key: 'memory' as const, label: '记忆' },
-    { key: 'skills' as const, label: '技能' },
-    { key: 'tools' as const, label: '工具' },
-    { key: 'env' as const, label: '运行环境' },
-    { key: 'update' as const, label: '更新' },
-  ]
-
-  return (
-    <div className="modal-mask" onClick={onClose}>
-      <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>设置</h3>
-        <div className="settings-tabs">
-          {tabs.map((t) => (
-            <button key={t.key} className={`tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'main' && (
-          <div className="settings-section">
-            <p className="section-hint">主编排模型：负责理解任务、调用工具，并可动态委派子模型。</p>
-            <label className="field">
-              <span>API Key</span>
-              <input
-                type="password"
-                value={form.apiKey ?? ''}
-                placeholder="sk-…"
-                onChange={(e) => setField('apiKey', e.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Base URL（OpenAI 兼容端点）</span>
-              <input
-                value={form.baseUrl ?? ''}
-                placeholder="https://api.deepseek.com/v1"
-                onChange={(e) => setField('baseUrl', e.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>模型名</span>
-              <input
-                value={form.model ?? ''}
-                placeholder="deepseek-v4-flash"
-                onChange={(e) => setField('model', e.target.value)}
-              />
-            </label>
-            <label className="field checkbox-field">
-              <span>多模态（支持图片输入）</span>
-              <input
-                type="checkbox"
-                checked={!!form.multimodal}
-                onChange={(e) => setForm({ ...form, multimodal: e.target.checked })}
-              />
-            </label>
-          </div>
-        )}
-
-        {tab === 'sub' && (
-          <div className="settings-section">
-            <p className="section-hint">
-              子模型由主编排模型按任务需求自动选择（能力匹配 + 上下文 + 实时性能），也可在对话中指定。
-            </p>
-            {subModels.map((m, idx) => (
-              <div key={idx} className="sub-model-card">
-                <div className="sub-model-head">
-                  <span className="sub-idx">#{idx + 1}</span>
-                  <button className="btn-link danger" onClick={() => removeSub(idx)}>
-                    删除
-                  </button>
-                </div>
-                <div className="field-row">
-                  <label className="field">
-                    <span>模型 ID（唯一标识）</span>
-                    <input value={m.id} placeholder="coder" onChange={(e) => patchSub(idx, { id: e.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>模型名</span>
-                    <input
-                      value={m.model}
-                      placeholder="deepseek-coder"
-                      onChange={(e) => patchSub(idx, { model: e.target.value })}
-                    />
-                  </label>
-                </div>
-                <div className="field-row">
-                  <label className="field">
-                    <span>显示名称（可选）</span>
-                    <input value={m.label ?? ''} placeholder="代码专家" onChange={(e) => patchSub(idx, { label: e.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>上下文窗口（token，可选）</span>
-                    <input
-                      type="number"
-                      value={m.contextWindow ?? ''}
-                      placeholder="64000"
-                      onChange={(e) => patchSub(idx, { contextWindow: e.target.value ? Number(e.target.value) : undefined })}
-                    />
-                  </label>
-                </div>
-                <label className="field">
-                  <span>能力标签（影响自动选择）</span>
-                  <div className="cap-tags">
-                    {CAPABILITY_OPTIONS.map((cap) => {
-                      const active = (m.capabilities ?? []).includes(cap)
-                      return (
-                        <button
-                          key={cap}
-                          className={`cap-tag ${active ? 'active' : ''}`}
-                          onClick={() => {
-                            const caps = m.capabilities ?? []
-                            patchSub(idx, { capabilities: active ? caps.filter((c) => c !== cap) : [...caps, cap] })
-                          }}
-                        >
-                          {CAPABILITY_LABELS[cap] ?? cap}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </label>
-                <div className="field-row">
-                  <label className="field">
-                    <span>Base URL（可选，缺省用主端点）</span>
-                    <input value={m.baseUrl ?? ''} placeholder="留空 = 主端点" onChange={(e) => patchSub(idx, { baseUrl: e.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>API Key（可选，缺省用主 Key）</span>
-                    <input
-                      type="password"
-                      value={m.apiKey ?? ''}
-                      placeholder="留空 = 主 Key"
-                      onChange={(e) => patchSub(idx, { apiKey: e.target.value })}
-                    />
-                  </label>
-                </div>
-              </div>
-            ))}
-            <button className="btn add-sub" onClick={addSub}>
-              + 添加子模型
-            </button>
-          </div>
-        )}
-
-        {tab === 'image' && (
-          <div className="settings-section">
-            <p className="section-hint">配置后 Agent 获得 generate_image 工具，可按描述生成图片。阿里云百炼 qwen-image 系列请选择 DashScope 原生模式。</p>
-            <label className="field">
-              <span>协议模式</span>
-              <select value={img?.mode ?? 'openai'} onChange={(e) => patchImg({ mode: (e.target.value as 'openai' | 'dashscope') })}>
-                <option value="openai">OpenAI 兼容（images 端点，dall-e-3 / wanx 等）</option>
-                <option value="dashscope">DashScope 原生（阿里云百炼 qwen-image 系列）</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>生图模型名</span>
-              <input
-                list="image-model-presets"
-                value={img?.model ?? ''}
-                placeholder="wanx-v1 / dall-e-3（留空 = 未启用）"
-                onChange={(e) => patchImg({ model: e.target.value })}
-              />
-              <datalist id="image-model-presets">
-                {IMAGE_MODEL_PRESETS.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-            </label>
-            <label className="field">
-              <span>Base URL（可选，缺省用主端点）</span>
-              <input value={img?.baseUrl ?? ''} placeholder={img?.mode === 'dashscope' ? 'https://dashscope.aliyuncs.com' : 'https://api.deepseek.com/v1'} onChange={(e) => patchImg({ baseUrl: e.target.value })} />
-            </label>
-            <label className="field">
-              <span>API Key（可选，缺省用主 Key）</span>
-              <input type="password" value={img?.apiKey ?? ''} placeholder="留空 = 主 Key" onChange={(e) => patchImg({ apiKey: e.target.value })} />
-            </label>
-            <label className="field">
-              <span>默认尺寸</span>
-              <input value={img?.size ?? ''} placeholder={img?.mode === 'dashscope' ? '1328*1328' : '1024x1024'} onChange={(e) => patchImg({ size: e.target.value })} />
-            </label>
-          </div>
-        )}
-
-        {tab === 'token-plan' && (
-          <div className="settings-section">
-            <p className="section-hint">
-              token-plan 是阿里云百炼的聚合 API：一个 Key 下挂多个模型（文本生成 / 生图 / 视频 / 语音 / Realtime-Chatting），单独配置。
-              其中文本子模型会注册进模型路由，由主模型通过 pick_model 自行判断调用；生图 / 视频 / 语音分别启用 generate_image / generate_video / text_to_speech（均为 DashScope 原生协议）。
-            </p>
-            <label className="field">
-              <span>API Key（token-plan 专用）</span>
-              <input
-                type="password"
-                value={tokenPlan?.apiKey ?? ''}
-                placeholder="sk-…"
-                onChange={(e) => patchTokenPlan({ apiKey: e.target.value })}
-              />
-            </label>
-            <label className="field">
-              <span>Base URL（专用域名）</span>
-              <input
-                value={tokenPlan?.baseUrl ?? ''}
-                placeholder={TOKEN_PLAN_ORIGIN}
-                onChange={(e) => patchTokenPlan({ baseUrl: e.target.value })}
-              />
-            </label>
-
-            <div className="tp-fetch-row">
-              <button className="btn" onClick={loadTokenPlanModels} disabled={tpLoading}>
-                {tpLoading ? '读取中…' : '从上游读取模型'}
-              </button>
-              <span className="section-hint">文本模型走 OpenAI 兼容 /models 实时读取，生图/视频/语音/Realtime 按官方清单回填。</span>
-            </div>
-            {tpError && <p className="tp-error">{tpError}</p>}
-
-            <h4 className="sub-heading">文本生成子模型（由主模型选调）</h4>
-            {tpText.map((m, idx) => (
-              <div key={idx} className="sub-model-card">
-                <div className="sub-model-head">
-                  <span className="sub-idx">#{idx + 1}</span>
-                  <button className="btn-link danger" onClick={() => removeTpText(idx)}>删除</button>
-                </div>
-                <div className="field-row">
-                  <label className="field">
-                    <span>模型 ID（唯一标识）</span>
-                    <input value={m.id} placeholder="tp-code" onChange={(e) => patchTpText(idx, { id: e.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>模型名</span>
-                    <input value={m.model} placeholder="qwen-max" onChange={(e) => patchTpText(idx, { model: e.target.value })} />
-                  </label>
-                </div>
-                <label className="field">
-                  <span>显示名称（可选）</span>
-                  <input value={m.label ?? ''} placeholder="通义千问" onChange={(e) => patchTpText(idx, { label: e.target.value })} />
-                </label>
-                <label className="field">
-                  <span>能力标签（影响自动选择）</span>
-                  <div className="cap-tags">
-                    {CAPABILITY_OPTIONS.map((cap) => {
-                      const active = (m.capabilities ?? []).includes(cap)
-                      return (
-                        <button
-                          key={cap}
-                          className={`cap-tag ${active ? 'active' : ''}`}
-                          onClick={() => {
-                            const caps = m.capabilities ?? []
-                            patchTpText(idx, { capabilities: active ? caps.filter((c) => c !== cap) : [...caps, cap] })
-                          }}
-                        >
-                          {CAPABILITY_LABELS[cap] ?? cap}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </label>
-              </div>
-            ))}
-            <button className="btn add-sub" onClick={addTpText}>+ 添加文本子模型</button>
-
-            <h4 className="sub-heading">生图模型（首个用于 generate_image）</h4>
-            {tpImage.map((m, idx) => (
-              <div key={idx} className="sub-model-card">
-                <div className="sub-model-head">
-                  <span className="sub-idx">#{idx + 1}</span>
-                  <button className="btn-link danger" onClick={() => removeTpImage(idx)}>删除</button>
-                </div>
-                <div className="field-row">
-                  <label className="field">
-                    <span>生图模型名</span>
-                    <input value={m.model} placeholder="qwen-image / wan2.7-image" onChange={(e) => patchTpImage(idx, { model: e.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>默认尺寸</span>
-                    <input value={m.size ?? ''} placeholder="1328*1328" onChange={(e) => patchTpImage(idx, { size: e.target.value })} />
-                  </label>
-                </div>
-              </div>
-            ))}
-            <button className="btn add-sub" onClick={addTpImage}>+ 添加生图模型</button>
-
-            <h4 className="sub-heading">视频生成模型（首个用于 generate_video）</h4>
-            {tpVideo.map((m, idx) => (
-              <div key={idx} className="sub-model-card">
-                <div className="sub-model-head">
-                  <span className="sub-idx">#{idx + 1}</span>
-                  <button className="btn-link danger" onClick={() => removeTpSimple('videoModels', idx)}>删除</button>
-                </div>
-                <div className="field-row">
-                  <label className="field">
-                    <span>视频模型名</span>
-                    <input value={m.model} placeholder="wan2.7-t2v / happyhorse-1.1-t2v" onChange={(e) => patchTpSimple('videoModels', idx, { model: e.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>显示名称（可选）</span>
-                    <input value={m.label ?? ''} placeholder="视频生成" onChange={(e) => patchTpSimple('videoModels', idx, { label: e.target.value })} />
-                  </label>
-                </div>
-              </div>
-            ))}
-            <button className="btn add-sub" onClick={() => addTpSimple('videoModels')}>+ 添加视频生成模型</button>
-
-            <h4 className="sub-heading">语音模型（首个用于 text_to_speech）</h4>
-            {tpVoice.map((m, idx) => (
-              <div key={idx} className="sub-model-card">
-                <div className="sub-model-head">
-                  <span className="sub-idx">#{idx + 1}</span>
-                  <button className="btn-link danger" onClick={() => removeTpSimple('voiceModels', idx)}>删除</button>
-                </div>
-                <div className="field-row">
-                  <label className="field">
-                    <span>语音模型名</span>
-                    <input value={m.model} placeholder="qwen-tts" onChange={(e) => patchTpSimple('voiceModels', idx, { model: e.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>显示名称（可选）</span>
-                    <input value={m.label ?? ''} placeholder="语音合成" onChange={(e) => patchTpSimple('voiceModels', idx, { label: e.target.value })} />
-                  </label>
-                </div>
-              </div>
-            ))}
-            <button className="btn add-sub" onClick={() => addTpSimple('voiceModels')}>+ 添加语音模型</button>
-
-            <h4 className="sub-heading">Realtime-Chatting 模型（配置占位）</h4>
-            {tpRealtime.map((m, idx) => (
-              <div key={idx} className="sub-model-card">
-                <div className="sub-model-head">
-                  <span className="sub-idx">#{idx + 1}</span>
-                  <button className="btn-link danger" onClick={() => removeTpSimple('realtimeModels', idx)}>删除</button>
-                </div>
-                <div className="field-row">
-                  <label className="field">
-                    <span>Realtime 模型名</span>
-                    <input value={m.model} placeholder="qwen-realtime" onChange={(e) => patchTpSimple('realtimeModels', idx, { model: e.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>显示名称（可选）</span>
-                    <input value={m.label ?? ''} placeholder="实时对话" onChange={(e) => patchTpSimple('realtimeModels', idx, { label: e.target.value })} />
-                  </label>
-                </div>
-              </div>
-            ))}
-            <button className="btn add-sub" onClick={() => addTpSimple('realtimeModels')}>+ 添加 Realtime 模型</button>
-          </div>
-        )}
-
-        {tab === 'env' && (
-          <div className="settings-section">
-            <label className="field">
-              <span>工作区（Agent 文件/命令操作的根目录）</span>
-              <input value={form.workspace ?? ''} placeholder="绝对路径" onChange={(e) => setField('workspace', e.target.value)} />
-            </label>
-            <div className="ws-picker">
-              <button className="btn" onClick={() => void pickWorkspace()}>📁 选择目录</button>
-              <button className="btn" onClick={() => void useTempWorkspace()}>✨ 临时工作区</button>
-            </div>
-            <label className="field">
-              <span>沙箱级别</span>
-              <select value={form.level ?? 'danger-full-access'} onChange={(e) => setField('level', e.target.value)}>
-                <option value="danger-full-access">danger-full-access（完全权限，默认）</option>
-                <option value="workspace-write">workspace-write（工作区内可写）</option>
-                <option value="read-only">read-only（只读）</option>
-              </select>
-            </label>
-          </div>
-        )}
-
-        {tab === 'specs' && <SpecPanel onToast={onToast} />}
-        {tab === 'memory' && <MemoryPanel />}
-        {tab === 'skills' && <SkillPanel />}
-        {tab === 'tools' && <ToolPanel />}
-        {tab === 'update' && <UpdatePanel />}
-
-        <div className="modal-actions">
-          <button className="btn" onClick={onClose}>
-            取消
-          </button>
-          <button className="btn primary" onClick={save}>
-            保存
-          </button>
-        </div>
       </div>
     </div>
   )
@@ -2065,7 +1644,7 @@ function KnowledgeSettingsPanel({
   }
 
   return (
-    <div className="sub-model-card" style={{ marginBottom: 12 }}>
+    <div className="sub-model-card mb-3">
       <div className="sub-model-head">
         <span className="sub-idx">启用知识库</span>
         <button className="btn" onClick={persistConfig} disabled={saving}>
@@ -2108,7 +1687,8 @@ function KnowledgeSettingsPanel({
   )
 }
 
-/** 上传知识文档面板（置于知识库设置弹层内，自带空间/目录选择，入库后通知外部刷新列表）。 */
+/** 上传知识文档面板（置于知识库设置弹层内，自带空间/目录选择，入库后通知外部刷新列表）。
+ *  标题由外层的折叠开关承担，此处不再重复渲染。 */
 function KnowledgeUploadPanel({
   onToast,
   onUploaded,
@@ -2193,15 +1773,13 @@ function KnowledgeUploadPanel({
   }
 
   return (
-    <div className="sub-model-card" style={{ marginBottom: 12 }}>
-      <div className="sub-model-head">
-        <span className="sub-idx">上传知识文档</span>
-      </div>
-      <div className="meta" style={{ marginBottom: 8 }}>
+    // 卡片外壳由弹窗里的折叠块提供，这里只输出内容，避免卡片套卡片
+    <>
+      <div className="meta mb-2">
         归档到：空间「{currentSpace?.name ?? '默认'}」 / 目录「{currentFolder ? currentFolder.name : '根目录'}」
       </div>
       <div className="field-row">
-        <label className="field" style={{ flex: 1 }}>
+        <label className="field grow">
           <span>归档空间</span>
           <select value={spaceId} onChange={(e) => { setSpaceId(e.target.value); setFolderId('') }}>
             {spaces.length === 0 && <option value="">加载中…</option>}
@@ -2217,7 +1795,7 @@ function KnowledgeUploadPanel({
         </label>
       </div>
       <div className="field-row">
-        <label className="field" style={{ flex: 1 }}>
+        <label className="field grow">
           <span>标题（可选）</span>
           <input value={title} placeholder="如 建筑施工规范" onChange={(e) => setTitle(e.target.value)} />
         </label>
@@ -2239,12 +1817,12 @@ function KnowledgeUploadPanel({
           onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
         />
       </label>
-      {files.length > 0 && <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>已选：{files.map((f) => f.name).join('、')}</div>}
+      {files.length > 0 && <div className="file-list">已选：{files.map((f) => f.name).join('、')}</div>}
       <button className="btn primary" onClick={() => void doUpload()} disabled={uploading}>
         {uploading ? '入库中…' : '上传入库'}
       </button>
-      {error && <div className="meta" style={{ color: '#ff6b6b', marginTop: 8 }}>{error}</div>}
-    </div>
+      {error && <InlineError>{error}</InlineError>}
+    </>
   )
 }
 
@@ -2269,6 +1847,16 @@ function KnowledgePanel({
   const [q, setQ] = useState('')
   const [listScope, setListScope] = useState<'global' | 'workspace'>('global')
   const [loading, setLoading] = useState(false)
+
+  // 知识库设置弹窗可达性：Esc 关闭、打开时移入焦点、关闭后归还焦点。
+  // onCloseSettings 由父组件内联传入（每次渲染重建），包一层稳定引用避免监听与焦点还原被反复重绑。
+  const onCloseSettingsRef = useRef(onCloseSettings)
+  onCloseSettingsRef.current = onCloseSettings
+  const closeSettings = useCallback(() => onCloseSettingsRef.current(), [])
+  const settingsModalRef = useModalA11y(settingsOpen, closeSettings)
+
+  // 上传面板挂载即请求空间/目录：默认收起，切到这一区才挂载，开弹窗不会顺手多打两个请求
+  const [uploadOpen, setUploadOpen] = useState(false)
 
   // 多知识空间 / 目录树
   const [spaces, setSpaces] = useState<KnowledgeSpace[]>([])
@@ -2324,7 +1912,13 @@ function KnowledgePanel({
     }
   }, [currentSpaceId, activeScope])
 
+  // 搜索防抖：停敲 300ms 才发请求（连敲 5 字只产生 1 次请求）；
+  // 序号丢弃：慢的旧响应回来后不覆盖新结果——乱序是搜索列表的老毛病。
+  const dq = useDebouncedValue(q)
+  const reqSeqRef = useRef(0)
+
   const refresh = useCallback(async () => {
+    const seq = ++reqSeqRef.current
     setLoading(true)
     setLoadError('')
     try {
@@ -2332,18 +1926,22 @@ function KnowledgePanel({
         scope: activeScope,
         spaceId: currentSpaceId || undefined,
         folderId: currentFolderId || undefined,
-        q: q || undefined,
+        q: dq || undefined,
       })
+      if (seq !== reqSeqRef.current) return
       setDocs(res.docs)
       setHasEmbedding(res.hasEmbedding)
     } catch (e) {
+      if (seq !== reqSeqRef.current) return
       setDocs([])
       setLoadError(e instanceof Error ? e.message : String(e))
     } finally {
-      setLoading(false)
-      setLoaded(true)
+      if (seq === reqSeqRef.current) {
+        setLoading(false)
+        setLoaded(true)
+      }
     }
-  }, [activeScope, currentSpaceId, currentFolderId, q])
+  }, [activeScope, currentSpaceId, currentFolderId, dq])
 
   useEffect(() => {
     void refreshSpaces()
@@ -2429,7 +2027,8 @@ function KnowledgePanel({
     }
   }
 
-  const doDelete = async (id: string) => {
+  const doDelete = async (id: string, title: string) => {
+    if (!confirm(`确定删除词条「${title}」？此操作不可撤销。`)) return
     await deleteKnowledgeDoc(id)
     if (viewDoc?.id === id) setViewDoc(null)
     void refresh()
@@ -2523,7 +2122,7 @@ function KnowledgePanel({
           <button className="btn-link kb-folder-name" title={f.name} onClick={() => setCurrentFolderId(f.id)}>
             <span className="kb-folder-ico">{f.name}</span>
           </button>
-          <button className="btn-link danger" title="删除目录" onClick={() => void doDeleteFolder(f.id, f.name)}>×</button>
+          <button className="btn-link danger" title="删除目录" aria-label="删除目录" onClick={() => void doDeleteFolder(f.id, f.name)}><Icon name="close" size={14} /></button>
         </div>
         {renderFolderTree(f.id, depth + 1)}
       </div>
@@ -2537,7 +2136,7 @@ function KnowledgePanel({
       <div className="kb-layout">
         <aside className={`kb-side${sideOpen ? ' open' : ''}`}>
           <button className="kb-side-handle" onClick={() => setSideOpen((o) => !o)} title={sideOpen ? '收起控制栏' : '展开控制栏'}>
-            <span className="kb-side-arrow">{sideOpen ? '‹' : '›'}</span>
+            <span className="kb-side-arrow">{sideOpen ? <Icon name="chevron-left" /> : <Icon name="chevron-right" />}</span>
             <span className="kb-side-label">控制</span>
           </button>
           <div className="kb-side-body">
@@ -2546,24 +2145,24 @@ function KnowledgePanel({
         支持多知识库空间与目录树管理，命中内容会注入到每次对话的 systemPrompt（上限 8KB）。
       </div>
 
-      <div className="sub-model-card" style={{ marginBottom: 12 }}>
+      <div className="sub-model-card mb-3">
         <div className="sub-model-head">
           <span className="sub-idx">知识库问答（带溯源）</span>
         </div>
         <p className="section-hint">针对当前空间提问，AI 将基于检索片段作答，并在句末标注 [1][2] 来源编号，可点击溯源到词条。</p>
         <div className="field-row">
-          <input value={qaQuestion} placeholder="如 本项目施工规范中对材料进场有哪些要求？" onChange={(e) => setQaQuestion(e.target.value)} style={{ flex: 1 }} onKeyDown={(e) => { if (e.key === 'Enter') void doAsk() }} />
+          <input value={qaQuestion} placeholder="如 本项目施工规范中对材料进场有哪些要求？" onChange={(e) => setQaQuestion(e.target.value)} className="grow" onKeyDown={(e) => { if (isSubmitEnter(e)) void doAsk() }} />
           <button className="btn primary" onClick={() => void doAsk()} disabled={qaLoading}>
             {qaLoading ? '回答中…' : '提问'}
           </button>
         </div>
-        {qaError && <div className="meta" style={{ color: '#ff6b6b', marginTop: 8 }}>{qaError}</div>}
+        {qaError && <InlineError>{qaError}</InlineError>}
         {qaAnswer && (
           <div className="kb-qa-answer">
-            <div className="kb-doc-content">{renderMarkdown(qaAnswer, () => {})}</div>
+            <div className="kb-doc-content"><Markdown text={qaAnswer} onPreview={() => {}} /></div>
             {qaHits.length > 0 && (
               <div className="kb-qa-sources">
-                <div className="meta" style={{ margin: '8px 0 4px' }}>来源：</div>
+                <div className="meta mt-2 mb-1">来源：</div>
                 {qaHits.map((h, i) => (
                   <div key={h.chunkId} className="kb-qa-source">
                     <button className="btn-link" onClick={() => void openDoc(h.docId)}>[{i + 1}] {h.docTitle}</button>
@@ -2576,19 +2175,19 @@ function KnowledgePanel({
         )}
       </div>
 
-      <div className="field-row" style={{ marginBottom: 12 }}>
+      <div className="field-row mb-3">
         <label className="field">
           <span>搜索</span>
           <input value={q} placeholder="标题/来源/标签关键词" onChange={(e) => setQ(e.target.value)} />
         </label>
-        <label className="field" style={{ maxWidth: 160 }}>
+        <label className="field w-160">
           <span>作用域</span>
           <select value={listScope} onChange={(e) => setListScope(e.target.value as 'global' | 'workspace')}>
             <option value="global">global</option>
             <option value="workspace">workspace</option>
           </select>
         </label>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+        <div className="row-end">
           <button className="btn" onClick={() => void doReindex()}>重建索引</button>
           {docs.length > 0 && (
             <button className="btn" onClick={() => void doClear()}>清空</button>
@@ -2609,23 +2208,25 @@ function KnowledgePanel({
       </div>
 
       {mode === 'graph' ? (
-        <KnowledgeGraph docs={docs} onToast={onToast} />
+        <Suspense fallback={null}>
+          <KnowledgeGraph docs={docs} onToast={onToast} />
+        </Suspense>
       ) : (
         <>
           <div className="settings-section kb-doc-list">
         {loading ? (
-          <div className="empty-hint">加载中…</div>
+          <div className="empty-hint"><InlineLoading /></div>
         ) : docs.length === 0 ? (
           <div className="empty-hint">
             {loadError ? (
               <>
-                <span style={{ color: '#ff6b6b' }}>加载失败：{loadError}</span>{' '}
+                <InlineError>加载失败：{loadError}</InlineError>{' '}
                 <button className="btn" onClick={() => void refresh()}>重试</button>
               </>
             ) : loaded ? (
               '知识库为空。上传文档或安装专业化包以填充。'
             ) : (
-              '加载中…'
+              <InlineLoading />
             )}
           </div>
         ) : (
@@ -2647,18 +2248,18 @@ function KnowledgePanel({
                     ) : (
                       <button className="btn-link" onClick={() => startMove(d.id)}>移动</button>
                     )}
-                    <button className="btn-link danger" onClick={() => void doDelete(d.id)}>删除</button>
+                    <button className="btn-link danger" onClick={() => void doDelete(d.id, d.title)}>删除</button>
                   </span>
                 </div>
                 <div className="meta">{d.contentLength} 字符 · {new Date(d.createdAt).toLocaleString()}</div>
                 {expanded && (
                   <div className="kb-doc-detail">
                     {viewDoc.tags?.length ? (
-                      <div className="cap-tags" style={{ margin: '8px 0' }}>
+                      <div className="cap-tags my-2">
                         {viewDoc.tags.map((t) => <span key={t} className="cap-tag">{t}</span>)}
                       </div>
                     ) : null}
-                    <div className="kb-doc-content">{renderMarkdown(viewDoc.content, () => {})}</div>
+                    <div className="kb-doc-content"><Markdown text={viewDoc.content} onPreview={() => {}} /></div>
                   </div>
                 )}
                 {movingId === d.id && (
@@ -2685,25 +2286,48 @@ function KnowledgePanel({
       </div>
 
       {settingsOpen && (
-        <div className="modal-mask" onClick={onCloseSettings}>
-          <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-mask" onClick={closeSettings}>
+          <div
+            className="modal settings-modal"
+            ref={settingsModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="知识库设置"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                closeSettings()
+              }
+            }}
+          >
             <h3>知识库设置</h3>
             <div className="settings-body">
               <KnowledgeSettingsPanel config={config} onSave={onSave} />
-              <KnowledgeUploadPanel onToast={onToast} onUploaded={() => setKbRefreshToken((t) => t + 1)} />
-              <div className="sub-model-card" style={{ marginBottom: 12 }}>
+              <div className="sub-model-card mb-3">
+                <button className="trae-section-toggle" aria-expanded={uploadOpen} onClick={() => setUploadOpen((v) => !v)}>
+                  <span className="trae-section-name">上传知识文档</span>
+                  <span className="trae-caret">{uploadOpen ? '▾' : '▸'}</span>
+                </button>
+                {/* 展开才挂载：面板内的空间/目录请求只在用户真的要上传时发出 */}
+                {uploadOpen && (
+                  <KnowledgeUploadPanel onToast={onToast} onUploaded={() => setKbRefreshToken((t) => t + 1)} />
+                )}
+              </div>
+              <div className="sub-model-card mb-3">
                 <div className="sub-model-head">
                   <span className="sub-idx">知识空间与目录</span>
                 </div>
                 <div className="field-row">
-                  <label className="field" style={{ maxWidth: 160 }}>
+                  <label className="field w-160">
                     <span>库作用域</span>
                     <select value={listScope} onChange={(e) => { setListScope(e.target.value as 'global' | 'workspace'); setCurrentFolderId('') }}>
                       <option value="global">global（全局）</option>
                       <option value="workspace">workspace（工作区）</option>
                     </select>
                   </label>
-                  <label className="field" style={{ flex: 1 }}>
+                  <label className="field grow">
                     <span>知识空间</span>
                     <select value={currentSpaceId} onChange={(e) => switchSpace(e.target.value)}>
                       {spaces.length === 0 && <option value="">加载中…</option>}
@@ -2711,15 +2335,15 @@ function KnowledgePanel({
                     </select>
                   </label>
                   {!currentSpace?.builtin && currentSpace && (
-                    <label className="field" style={{ maxWidth: 90 }}>
+                    <label className="field w-90">
                       <span>&nbsp;</span>
                       <button className="btn danger" onClick={() => void doDeleteSpace(currentSpace.id)}>删除空间</button>
                     </label>
                   )}
                 </div>
-                {currentSpace?.description && <div className="meta" style={{ margin: '4px 0 8px' }}>{currentSpace.description}</div>}
-                <div className="field-row" style={{ marginBottom: 10 }}>
-                  <input value={newSpaceName} placeholder="新空间名称，如 建筑工程规范" onChange={(e) => setNewSpaceName(e.target.value)} style={{ flex: 1 }} />
+                {currentSpace?.description && <div className="meta mt-1 mb-2">{currentSpace.description}</div>}
+                <div className="field-row mb-2">
+                  <input value={newSpaceName} placeholder="新空间名称，如 建筑工程规范" onChange={(e) => setNewSpaceName(e.target.value)} className="grow" />
                   <button className="btn" onClick={() => void doCreateSpace()}>新建空间</button>
                 </div>
                 <div className="kb-folders">
@@ -2727,673 +2351,20 @@ function KnowledgePanel({
                     <button className="btn-link kb-folder-name" onClick={() => setCurrentFolderId('')}>全部文档</button>
                   </div>
                   {renderFolderTree(null)}
-                  <div className="field-row" style={{ marginTop: 8 }}>
-                    <input value={newFolderName} placeholder="目录名" onChange={(e) => setNewFolderName(e.target.value)} style={{ flex: 1 }} />
+                  <div className="field-row mt-2">
+                    <input value={newFolderName} placeholder="目录名" onChange={(e) => setNewFolderName(e.target.value)} className="grow" />
                     <button className="btn" onClick={() => void doCreateFolder(currentFolderId || null)}>新建目录</button>
                   </div>
                   <div className="meta">当前目录：{currentFolder ? currentFolder.name : '根目录（全部文档）'} · 共 {docs.length} 个词条</div>
                 </div>
               </div>
             </div>
-            <button className="btn" onClick={onCloseSettings}>关闭</button>
+            <button className="btn" onClick={closeSettings}>关闭</button>
           </div>
         </div>
       )}
     </>
   )
-}
-
-/** 知识链接图谱：词条 × 标签的二分关系图（Three.js 真三维 + 扎哈流线 + 轨道旋转/缩放），点击节点预览内容。 */
-
-// 模拟空间半边长（力导向布局范围）。
-const KG_SPACE = 300
-const clampv = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
-
-/* 编辑式 · 纸感奶白 × 陶土：珍珠奶白节点 + 软陶标签 + 暖灰流线，单点陶土强调。 */
-const KG_ACCENT = 0xc0481c
-const KG_DOC_COLOR = 0xf5f2ec
-const KG_TAG_COLOR = 0xefd0c4
-const KG_EDGE_COLOR = 0xb2a58f
-const KG_COL_SEL = new THREE.Color(KG_ACCENT)
-const KG_COL_HOVER = new THREE.Color(0xe6a988)
-const KG_COL_NONE = new THREE.Color(0x000000)
-
-/** Three.js 场景上下文（跨 React 渲染持久化，避免重复创建渲染器）。 */
-type ThreeCtx = {
-  renderer: THREE.WebGLRenderer
-  scene: THREE.Scene
-  camera: THREE.PerspectiveCamera
-  controls: OrbitControls
-  group: THREE.Group
-  ring: THREE.Mesh
-  raycaster: THREE.Raycaster
-  pointer: THREE.Vector2
-  nodeMeshes: THREE.Mesh[]
-  edgeMeshes: THREE.Mesh[]
-  raf: number
-  ro: ResizeObserver | null
-  hoverId: string | null
-  bumpTex: THREE.Texture | null
-}
-
-/** 确定性哈希 → [0,1)，用于让每条流线以稳定而各异的角度弯曲。 */
-function hashUnit(s: string): number {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return ((h >>> 0) % 1000) / 1000
-}
-
-/** 程序化纸张肌理：奶白底 + 细颗粒噪点 + 横向纤维丝 + 柔和斑驳，可无缝平铺。
- *  与页面保持一致纸感色 (#f3f0e9)，用于 3D 的纸感背景 / 纸感地面 / 节点纸浆凸感。 */
-function makePaperTexture(): THREE.CanvasTexture {
-  const size = 512
-  const cv = document.createElement('canvas')
-  cv.width = size
-  cv.height = size
-  const ctx = cv.getContext('2d')!
-  ctx.fillStyle = '#f3f0e9'
-  ctx.fillRect(0, 0, size, size)
-
-  // 细颗粒噪点：乘性明暗斑，模拟纸张纤维颗粒的微起伏。
-  const img = ctx.getImageData(0, 0, size, size)
-  const px = img.data
-  for (let i = 0; i < px.length; i += 4) {
-    const n = (Math.random() - 0.5) * 14
-    px[i] = Math.max(0, Math.min(255, px[i] + n))
-    px[i + 1] = Math.max(0, Math.min(255, px[i + 1] + n))
-    px[i + 2] = Math.max(0, Math.min(255, px[i + 2] + n))
-  }
-  ctx.putImageData(img, 0, 0)
-
-  // 横向纤维丝：柔细长丝，跨上下边界各复制一份实现无缝平铺。
-  ctx.lineWidth = 0.5
-  for (let k = 0; k < 220; k++) {
-    const y = Math.random() * size
-    const len = size * (0.35 + Math.random() * 0.6)
-    const x = Math.random() * size
-    const bend = (Math.random() - 0.5) * 6
-    const alpha = 0.03 + Math.random() * 0.05
-    const tone = Math.random() > 0.5 ? '120,110,92' : '255,255,255'
-    for (const off of [-size, 0, size]) {
-      const gy = y + off
-      const grad = ctx.createLinearGradient(x, gy, x + len, gy)
-      grad.addColorStop(0, `rgba(${tone},0)`)
-      grad.addColorStop(0.5, `rgba(${tone},${alpha})`)
-      grad.addColorStop(1, `rgba(${tone},0)`)
-      ctx.strokeStyle = grad
-      ctx.beginPath()
-      ctx.moveTo(x, gy)
-      ctx.quadraticCurveTo(x + len / 2, gy + bend, x + len, gy)
-      ctx.stroke()
-    }
-  }
-
-  // 柔和斑驳：几团极淡明暗，模拟纸浆不匀，越界团块四周复制以无缝平铺。
-  for (let k = 0; k < 26; k++) {
-    const cx = Math.random() * size
-    const cy = Math.random() * size
-    const r = 40 + Math.random() * 120
-    const light = Math.random() > 0.45
-    const a = 0.02 + Math.random() * 0.03
-    const g2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
-    g2.addColorStop(0, light ? `rgba(255,255,255,${a})` : `rgba(150,138,116,${a})`)
-    g2.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = g2
-    for (const ox of [-size, 0, size]) {
-      for (const oy of [-size, 0, size]) {
-        ctx.beginPath()
-        ctx.arc(cx + ox, cy + oy, r, 0, Math.PI * 2)
-        ctx.fill()
-      }
-    }
-  }
-
-  const tex = new THREE.CanvasTexture(cv)
-  tex.wrapS = THREE.RepeatWrapping
-  tex.wrapT = THREE.RepeatWrapping
-  tex.colorSpace = THREE.SRGBColorSpace
-  tex.anisotropy = 8
-  return tex
-}
-
-/** 珍珠/浅玫瑰物理材质：清漆 + 虹彩 + 微绒面 + 纸浆颗粒凸感，浅色高级纸感。 */
-function makeNodeMaterial(kind: 'doc' | 'tag', bump?: THREE.Texture | null): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
-    color: kind === 'doc' ? KG_DOC_COLOR : KG_TAG_COLOR,
-    roughness: 0.3,
-    metalness: 0.0,
-    clearcoat: 0.65,
-    clearcoatRoughness: 0.35,
-    iridescence: 0.22,
-    iridescenceIOR: 1.3,
-    sheen: 0.36,
-    sheenRoughness: 0.5,
-    sheenColor: new THREE.Color(kind === 'doc' ? 0xeae3d6 : 0xf6dcd2),
-    bumpMap: bump ?? null,
-    bumpScale: bump ? 0.5 : 0,
-    transparent: true,
-    opacity: 1,
-    emissive: new THREE.Color(0x000000),
-  })
-}
-
-/** 扎哈流线：节点间以二次贝塞尔弧线（TubeGeometry）相连，弯曲方向由哈希确定、彼此各异。 */
-function makeEdgeTube(a: THREE.Vector3, b: THREE.Vector3, seed: number): THREE.Mesh {
-  const dir = new THREE.Vector3().subVectors(b, a)
-  const dist = dir.length() || 1
-  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5)
-  const ref = Math.abs(dir.y) > 0.9 * dist ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)
-  const perp = new THREE.Vector3().crossVectors(dir, ref).normalize()
-  const tilt = new THREE.Vector3().crossVectors(dir, perp).normalize()
-  const bend = dist * 0.24
-  const ang = seed * Math.PI * 2
-  const ctrl = mid.clone().addScaledVector(perp, Math.cos(ang) * bend).addScaledVector(tilt, Math.sin(ang) * bend)
-  const curve = new THREE.QuadraticBezierCurve3(a.clone(), ctrl, b.clone())
-  const radius = Math.max(0.5, Math.min(1.4, dist * 0.006))
-  const geo = new THREE.TubeGeometry(curve, 28, radius, 7, false)
-  const mat = new THREE.MeshBasicMaterial({ color: KG_EDGE_COLOR, transparent: true, opacity: 0.32 })
-  return new THREE.Mesh(geo, mat)
-}
-
-/** 释放 group 内所有网格的几何体与材质。 */
-function disposeGroup(group: THREE.Group): void {
-  for (let i = group.children.length - 1; i >= 0; i--) {
-    const c = group.children[i] as THREE.Mesh
-    group.remove(c)
-    if (c.geometry) c.geometry.dispose()
-    const m = c.material as THREE.Material | THREE.Material[] | undefined
-    if (Array.isArray(m)) m.forEach((x) => x.dispose())
-    else if (m) m.dispose()
-  }
-}
-
-function KnowledgeGraph({
-  docs,
-  onToast,
-}: {
-  docs: KnowledgeDoc[]
-  onToast: (message: string) => void
-}) {
-  const [sel, setSel] = useState<{ kind: 'doc' | 'tag'; id: string } | null>(null)
-  const [selDoc, setSelDoc] = useState<KnowledgeDocDetail | null>(null)
-  const [fetching, setFetching] = useState(false)
-  const [positions, setPositions] = useState<Map<string, { x: number; y: number; z: number }> | null>(null)
-  const [hoverInfo, setHoverInfo] = useState<{ title: string; sub: string } | null>(null)
-
-  const mountRef = useRef<HTMLDivElement | null>(null)
-  const tipRef = useRef<HTMLDivElement | null>(null)
-  const threeRef = useRef<ThreeCtx | null>(null)
-  const focusSetRef = useRef<Set<string> | null>(null)
-  const selRef = useRef<{ kind: 'doc' | 'tag'; id: string } | null>(null)
-  const selectNodeRef = useRef<(n: { kind: 'doc' | 'tag'; id: string }) => void>(() => {})
-
-  const { nodes, edges } = useMemo(() => buildKnowledgeGraph(docs), [docs])
-
-  const tagCounts = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const d of docs) for (const t of d.tags ?? []) m.set(t, (m.get(t) ?? 0) + 1)
-    return m
-  }, [docs])
-
-  // 三维力导向布局（收敛后一次性渲染，避免运行时抖动）
-  useEffect(() => {
-    if (!nodes.length) return
-    const sim = nodes.map((n) => ({
-      ...n,
-      x: (Math.random() - 0.5) * KG_SPACE * 1.2,
-      y: (Math.random() - 0.5) * KG_SPACE * 1.2,
-      z: (Math.random() - 0.5) * KG_SPACE * 1.2,
-    }))
-    const idx = new Map(sim.map((n, i) => [n.id, i]))
-    const adj = edges
-      .map((e) => [idx.get(e.source), idx.get(e.target)])
-      .filter((pair): pair is [number, number] => typeof pair[0] === 'number' && typeof pair[1] === 'number')
-    for (let iter = 0; iter < 320; iter++) {
-      for (let i = 0; i < sim.length; i++) {
-        for (let j = i + 1; j < sim.length; j++) {
-          const dx = sim[i].x - sim[j].x
-          const dy = sim[i].y - sim[j].y
-          const dz = sim[i].z - sim[j].z
-          const d2 = dx * dx + dy * dy + dz * dz || 1
-          const d = Math.sqrt(d2)
-          const rf = (sim[i].kind === 'doc' ? 1.5 : 1) * (sim[j].kind === 'doc' ? 1.5 : 1)
-          const f = Math.min(9000, (rf * 5200) / d2)
-          const fx = (f * dx) / d
-          const fy = (f * dy) / d
-          const fz = (f * dz) / d
-          sim[i].vx += fx
-          sim[i].vy += fy
-          sim[i].vz += fz
-          sim[j].vx -= fx
-          sim[j].vy -= fy
-          sim[j].vz -= fz
-        }
-      }
-      for (const [a, b] of adj) {
-        const dx = sim[b].x - sim[a].x
-        const dy = sim[b].y - sim[a].y
-        const dz = sim[b].z - sim[a].z
-        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1
-        const f = (sim[a].kind === 'doc' && sim[b].kind === 'doc' ? 0.004 : 0.01) * d
-        const fx = (f * dx) / d
-        const fy = (f * dy) / d
-        const fz = (f * dz) / d
-        sim[a].vx += fx
-        sim[a].vy += fy
-        sim[a].vz += fz
-        sim[b].vx -= fx
-        sim[b].vy -= fy
-        sim[b].vz -= fz
-      }
-      for (const n of sim) {
-        n.vx += -n.x * 0.006
-        n.vy += -n.y * 0.006
-        n.vz += -n.z * 0.006
-        n.vx *= 0.86
-        n.vy *= 0.86
-        n.vz *= 0.86
-        n.x += n.vx
-        n.y += n.vy
-        n.z += n.vz
-      }
-    }
-    for (const n of sim) {
-      n.x = clampv(n.x, -KG_SPACE, KG_SPACE)
-      n.y = clampv(n.y, -KG_SPACE, KG_SPACE)
-      n.z = clampv(n.z, -KG_SPACE, KG_SPACE)
-    }
-    setPositions(new Map(sim.map((n) => [n.id, { x: n.x, y: n.y, z: n.z }])))
-  }, [nodes, edges])
-
-  // 邻居关系
-  const neighbors = useMemo(() => {
-    const m = new Map<string, Set<string>>()
-    for (const e of edges) {
-      if (!m.has(e.source)) m.set(e.source, new Set())
-      if (!m.has(e.target)) m.set(e.target, new Set())
-      m.get(e.source)!.add(e.target)
-      m.get(e.target)!.add(e.source)
-    }
-    return m
-  }, [edges])
-
-  const focusSet = useMemo(() => {
-    if (!sel) return null
-    const s = new Set<string>([sel.id])
-    const nb = neighbors.get(sel.id)
-    if (nb) for (const x of nb) s.add(x)
-    return s
-  }, [sel, neighbors])
-
-  const groupDocs = (tag: string) => docs.filter((d) => d.tags?.includes(tag))
-
-  const selectNode = async (n: { kind: 'doc' | 'tag'; id: string }) => {
-    setSel(n)
-    if (n.kind === 'doc') {
-      setFetching(true)
-      try {
-        setSelDoc(await fetchKnowledgeDoc(n.id))
-      } catch (e) {
-        setSelDoc(null)
-        onToast(e instanceof Error ? e.message : String(e))
-      } finally {
-        setFetching(false)
-      }
-    } else {
-      setSelDoc(null)
-    }
-  }
-
-  // 将最新的选中态 / 聚焦集合 / 选择回调写入 ref，供挂载一次的 Three.js 渲染循环读取。
-  focusSetRef.current = focusSet
-  selRef.current = sel
-  selectNodeRef.current = (n) => {
-    void selectNode(n)
-  }
-
-  // 挂载一次：创建渲染器 / 相机 / 灯光 / 轨道控制 / 地面柔影 / 选择轨道环，并启动渲染循环。
-  useEffect(() => {
-    const mount = mountRef.current
-    if (!mount) return
-    const scene = new THREE.Scene()
-    scene.fog = new THREE.Fog(0xf3f0e9, 980, 2500)
-
-    // 程序化纸感：整面纸背景 + 纸感地面（同纹理，分别 Control 平铺参数）。
-    const paperBack = makePaperTexture()
-    paperBack.wrapS = paperBack.wrapT = THREE.ClampToEdgeWrapping
-    scene.background = paperBack
-    const paperGround = makePaperTexture()
-    paperGround.repeat.set(36, 36)
-
-    const camera = new THREE.PerspectiveCamera(42, 1, 1, 6000)
-    camera.position.set(0, 200, 860)
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.06
-    renderer.domElement.className = 'kb-graph-canvas'
-    mount.appendChild(renderer.domElement)
-
-    // 扎哈浅色光环境：半球环境光 + 主光（柔影） + 冷调补光。
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xe6dfd0, 1.05))
-    const key = new THREE.DirectionalLight(0xffffff, 1.5)
-    key.position.set(240, 340, 200)
-    key.castShadow = true
-    key.shadow.mapSize.set(2048, 2048)
-    key.shadow.camera.left = -KG_SPACE - 160
-    key.shadow.camera.right = KG_SPACE + 160
-    key.shadow.camera.top = KG_SPACE + 160
-    key.shadow.camera.bottom = -KG_SPACE - 160
-    key.shadow.camera.near = 50
-    key.shadow.camera.far = 1500
-    key.shadow.bias = -0.0004
-    key.shadow.radius = 6
-    scene.add(key)
-    const fill = new THREE.DirectionalLight(0xece5d8, 0.5)
-    fill.position.set(-260, -140, -220)
-    scene.add(fill)
-
-    // 地面柔影 + 纸感：漂浮的形态落在带纸张肌理的纸面上。
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(4000, 4000),
-      new THREE.MeshStandardMaterial({ map: paperGround, roughness: 1.0, metalness: 0, color: 0xdedad0 })
-    )
-    ground.rotation.x = -Math.PI / 2
-    ground.position.y = -KG_SPACE - 60
-    ground.receiveShadow = true
-    scene.add(ground)
-
-    // 选择轨道环：扎哈式的绕行丝带，仅在选中节点时出现。
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(1, 0.03, 12, 80),
-      new THREE.MeshBasicMaterial({ color: KG_ACCENT, transparent: true, opacity: 0.85 })
-    )
-    ring.visible = false
-    scene.add(ring)
-
-    const group = new THREE.Group()
-    scene.add(group)
-
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
-    controls.dampingFactor = 0.06
-    controls.rotateSpeed = 0.65
-    controls.autoRotate = true
-    controls.autoRotateSpeed = 0.55
-    controls.minDistance = 280
-    controls.maxDistance = 2400
-    controls.target.set(0, 0, 0)
-
-    const raycaster = new THREE.Raycaster()
-    const pointer = new THREE.Vector2()
-    const ctx: ThreeCtx = { renderer, scene, camera, controls, group, ring, raycaster, pointer, nodeMeshes: [], edgeMeshes: [], raf: 0, ro: null, hoverId: null, bumpTex: paperGround }
-    threeRef.current = ctx
-
-    const setSize = () => {
-      const w = mount.clientWidth || 1
-      const h = mount.clientHeight || 1
-      renderer.setSize(w, h)
-      camera.aspect = w / h
-      camera.updateProjectionMatrix()
-    }
-    setSize()
-    const ro = new ResizeObserver(setSize)
-    ro.observe(mount)
-    ctx.ro = ro
-
-    const el = renderer.domElement
-    const updatePointer = (e: PointerEvent) => {
-      const rect = el.getBoundingClientRect()
-      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
-      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
-    }
-    const pick = (): THREE.Mesh | null => {
-      raycaster.setFromCamera(pointer, camera)
-      const hits = raycaster.intersectObjects(ctx.nodeMeshes, false)
-      return hits.length ? (hits[0].object as THREE.Mesh) : null
-    }
-    const onMove = (e: PointerEvent) => {
-      updatePointer(e)
-      const hit = pick()
-      const id = hit ? (hit.userData.id as string) : null
-      if (id !== ctx.hoverId) {
-        ctx.hoverId = id
-        el.style.cursor = id ? 'pointer' : 'grab'
-        if (hit) {
-          const u = hit.userData
-          setHoverInfo({ title: u.kind === 'doc' ? (u.label as string) : (u.tag as string), sub: u.kind === 'doc' ? '词条' : `标签 · ${u.count} 篇` })
-        } else {
-          setHoverInfo(null)
-        }
-      }
-      if (hit && tipRef.current) {
-        const rect = el.getBoundingClientRect()
-        tipRef.current.style.left = `${e.clientX - rect.left + 14}px`
-        tipRef.current.style.top = `${e.clientY - rect.top + 12}px`
-      }
-    }
-    let downPos: { x: number; y: number } | null = null
-    const onDown = (e: PointerEvent) => {
-      downPos = { x: e.clientX, y: e.clientY }
-    }
-    const onUp = (e: PointerEvent) => {
-      if (!downPos) return
-      const moved = Math.abs(e.clientX - downPos.x) + Math.abs(e.clientY - downPos.y)
-      downPos = null
-      if (moved > 6) return
-      updatePointer(e)
-      const hit = pick()
-      if (hit) selectNodeRef.current({ kind: hit.userData.kind, id: hit.userData.id })
-    }
-    el.addEventListener('pointermove', onMove)
-    el.addEventListener('pointerdown', onDown)
-    el.addEventListener('pointerup', onUp)
-
-    const tick = () => {
-      ctx.raf = requestAnimationFrame(tick)
-      controls.update()
-      const focus = focusSetRef.current
-      const selId = selRef.current?.id ?? null
-      for (const m of ctx.nodeMeshes) {
-        const id = m.userData.id as string
-        const mat = m.material as THREE.MeshPhysicalMaterial
-        const target = focus ? (focus.has(id) ? 1 : 0.16) : 1
-        mat.opacity += (target - mat.opacity) * 0.12
-        const isSel = id === selId
-        const isHover = id === ctx.hoverId
-        mat.emissive.lerp(isSel ? KG_COL_SEL : isHover ? KG_COL_HOVER : KG_COL_NONE, 0.15)
-        const targetScale = isSel ? 1.18 : isHover ? 1.1 : 1
-        m.scale.setScalar(m.scale.x + (targetScale - m.scale.x) * 0.15)
-      }
-      for (const t of ctx.edgeMeshes) {
-        const a = t.userData.source as string
-        const b = t.userData.target as string
-        const mat = t.material as THREE.MeshBasicMaterial
-        const target = focus ? (focus.has(a) && focus.has(b) ? 0.62 : 0.05) : 0.32
-        mat.opacity += (target - mat.opacity) * 0.12
-      }
-      if (ring.visible) {
-        ring.rotation.z += 0.012
-        ring.rotation.x = Math.PI / 2.3 + Math.sin(performance.now() * 0.001) * 0.12
-      }
-      renderer.render(scene, camera)
-    }
-    tick()
-
-    return () => {
-      cancelAnimationFrame(ctx.raf)
-      ro.disconnect()
-      el.removeEventListener('pointermove', onMove)
-      el.removeEventListener('pointerdown', onDown)
-      el.removeEventListener('pointerup', onUp)
-      controls.dispose()
-      disposeGroup(group)
-      const ringMat = ring.material as THREE.Material
-      ring.geometry.dispose()
-      ringMat.dispose()
-      const groundMat = ground.material as THREE.Material
-      ground.geometry.dispose()
-      groundMat.dispose()
-      paperBack.dispose()
-      paperGround.dispose()
-      renderer.dispose()
-      mount.removeChild(renderer.domElement)
-      threeRef.current = null
-    }
-  }, [])
-
-  // 依据力导向布局位置重建节点网格与流线管道（位置就绪后一次构建）。
-  useEffect(() => {
-    const ctx = threeRef.current
-    if (!ctx || !positions) return
-    disposeGroup(ctx.group)
-    ctx.nodeMeshes = []
-    ctx.edgeMeshes = []
-    ctx.hoverId = null
-    setHoverInfo(null)
-    const nodePos = new Map<string, THREE.Vector3>()
-    for (const n of nodes) {
-      const p = positions.get(n.id)
-      if (p) nodePos.set(n.id, new THREE.Vector3(p.x, p.y, p.z))
-    }
-    for (const e of edges) {
-      const a = nodePos.get(e.source)
-      const b = nodePos.get(e.target)
-      if (!a || !b) continue
-      const tube = makeEdgeTube(a, b, hashUnit(`${e.source}|${e.target}`))
-      tube.userData = { source: e.source, target: e.target }
-      ctx.group.add(tube)
-      ctx.edgeMeshes.push(tube)
-    }
-    for (const n of nodes) {
-      const p = nodePos.get(n.id)
-      if (!p) continue
-      const baseRadius = n.r * 1.5
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(baseRadius, 40, 28), makeNodeMaterial(n.kind, ctx.bumpTex))
-      mesh.position.copy(p)
-      mesh.castShadow = true
-      mesh.userData = { id: n.id, kind: n.kind, label: n.label, tag: n.tag, count: n.kind === 'tag' ? tagCounts.get(n.tag ?? '') ?? 0 : 0, baseRadius }
-      ctx.group.add(mesh)
-      ctx.nodeMeshes.push(mesh)
-    }
-  }, [positions, nodes, edges, tagCounts])
-
-  // 选择轨道环跟随选中节点。
-  useEffect(() => {
-    const ctx = threeRef.current
-    if (!ctx) return
-    const mesh = sel ? ctx.nodeMeshes.find((m) => m.userData.id === sel.id) : undefined
-    if (mesh) {
-      ctx.ring.visible = true
-      ctx.ring.position.copy(mesh.position)
-      ctx.ring.scale.setScalar((mesh.userData.baseRadius as number) * 2.1)
-    } else {
-      ctx.ring.visible = false
-    }
-  }, [sel, positions, nodes])
-
-  return (
-    <div className="kb-graph">
-      <div className="kb-graph-hint">
-        <span className="kg-legend"><i className="kg-dot doc" />词条</span>
-        <span className="kg-legend"><i className="kg-dot tag" />标签</span>
-        <span className="kg-tip">拖拽旋转 · 滚轮缩放 · 点击节点在下方预览</span>
-      </div>
-      <div ref={mountRef} className="kb-graph-3d">
-        {(!positions || !docs.length) && (
-          <div className="kg-empty">{docs.length ? '正在生成图谱…' : '知识库为空，上传文档后自动生成信息链接图谱。'}</div>
-        )}
-        <div ref={tipRef} className={`kg-tooltip${hoverInfo ? ' show' : ''}`}>
-          {hoverInfo && (
-            <>
-              <div className="kg-tooltip-title">{hoverInfo.title}</div>
-              <div className="kg-tooltip-sub">{hoverInfo.sub}</div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {sel && (
-        <div className="kb-graph-preview">
-          {sel.kind === 'doc' ? (
-            selDoc ? (
-              <>
-                <div className="sub-model-head">
-                  <span className="sub-idx">{selDoc.source} · {selDoc.title}</span>
-                  <button className="btn-link" onClick={() => { setSel(null); setSelDoc(null) }}>收起</button>
-                </div>
-                <div className="meta">{selDoc.contentLength} 字符 · {selDoc.chunkCount} 分块 · {new Date(selDoc.createdAt).toLocaleString()}</div>
-                {selDoc.tags?.length ? (
-                  <div className="cap-tags" style={{ margin: '8px 0' }}>
-                    {selDoc.tags.map((t) => <span key={t} className="cap-tag">{t}</span>)}
-                  </div>
-                ) : null}
-                <div className="kb-doc-content">{renderMarkdown(selDoc.content, () => {})}</div>
-              </>
-            ) : (
-              <div className="empty-hint">{fetching ? '加载词条中…' : '该词条无内容'}</div>
-            )
-          ) : (
-            <>
-              <div className="sub-model-head">
-                <span className="sub-idx">标签「{sel.id.replace(/^tag:/, '')}」关联 {groupDocs(sel.id.replace(/^tag:/, '')).length} 个词条</span>
-                <button className="btn-link" onClick={() => setSel(null)}>收起</button>
-              </div>
-              <div className="kb-graph-group">
-                {groupDocs(sel.id.replace(/^tag:/, '')).map((d) => (
-                  <button key={d.id} className="btn-link" onClick={() => void selectNode({ kind: 'doc', id: d.id })}>{d.title}（{d.chunkCount} 分块）</button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** 根据分块数计算节点半径。 */
-function clampNodeRadius(v: number, min: number, max: number): number {
-  const s = Math.sqrt(Math.max(1, v))
-  return Math.max(min, Math.min(max, 4 + s * 1.6))
-}
-
-/** 图谱节点：词条（doc）或标签（tag）。 */
-type GraphNode = {
-  id: string
-  kind: 'doc' | 'tag'
-  label: string
-  doc?: KnowledgeDoc
-  tag?: string
-  r: number
-  x: number
-  y: number
-  z: number
-  vx: number
-  vy: number
-  vz: number
-}
-
-/** 构建词条 × 标签二分图节点与边。 */
-function buildKnowledgeGraph(docs: KnowledgeDoc[]): { nodes: GraphNode[]; edges: Array<{ source: string; target: string }> } {
-  const nodes: GraphNode[] = []
-  const edges: Array<{ source: string; target: string }> = []
-  const tagFreq = new Map<string, number>()
-  for (const d of docs) for (const t of d.tags ?? []) tagFreq.set(t, (tagFreq.get(t) ?? 0) + 1)
-  for (const d of docs) {
-    nodes.push({ id: d.id, kind: 'doc', label: d.title, doc: d, tag: undefined, r: clampNodeRadius(d.chunkCount, 5, 15), x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 })
-  }
-  for (const [tag, freq] of tagFreq) {
-    nodes.push({ id: `tag:${tag}`, kind: 'tag', label: tag, doc: undefined, tag, r: clampNodeRadius(freq, 3, 8), x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 })
-  }
-  for (const d of docs) for (const t of d.tags ?? []) edges.push({ source: d.id, target: `tag:${t}` })
-  return { nodes, edges }
 }
 
 /** 知识库独立页面：顶部返回 + 可滚动内容（配置 / 上传 / 词条列表 / 词条详情）。 */
@@ -3412,894 +2383,14 @@ function KnowledgePage({
   return (
     <main className="main kb-page">
       <header className="topbar">
-        <button className="btn-link" onClick={onBack}>← 返回对话</button>
+        <button className="btn-link" onClick={onBack}><Icon name="arrow-left" /> 返回对话</button>
         <span className="kb-page-title">知识库</span>
         <span className="kb-page-sub">自生长知识库</span>
-        <button className="btn-link kb-settings-btn" title="知识库设置" onClick={() => setKbSettingsOpen(true)}>···</button>
+        <button className="btn-link kb-settings-btn" title="知识库设置" aria-label="知识库设置" onClick={() => setKbSettingsOpen(true)}><Icon name="sliders" /></button>
       </header>
       <div className="kb-scroll kb-page-scroll">
         <KnowledgePanel onToast={onToast} config={config} onSave={onSave} settingsOpen={kbSettingsOpen} onCloseSettings={() => setKbSettingsOpen(false)} />
       </div>
     </main>
-  )
-}
-
-/** 专业化能力包面板：安装 zip / 启停 / 移除。 */
-function SpecPanel({ onToast }: { onToast: (message: string) => void }) {
-  const [specs, setSpecs] = useState<SpecRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [file, setFile] = useState<File | null>(null)
-  const [installing, setInstalling] = useState(false)
-  const [error, setError] = useState('')
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      setSpecs(await fetchSpecs())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  const doInstall = async () => {
-    if (!file) {
-      setError('请先选择 .zip 能力包文件')
-      return
-    }
-    setInstalling(true)
-    setError('')
-    try {
-      const data = await fileToBase64(file)
-      const spec = await installSpec(data)
-      setFile(null)
-      onToast(`已安装专业化包「${spec.name}」`)
-      void refresh()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setInstalling(false)
-    }
-  }
-
-  const doToggle = async (s: SpecRecord) => {
-    const ok = await setSpecEnabled(s.id, !s.enabled)
-    if (ok) {
-      onToast(`已${!s.enabled ? '启用' : '禁用'}「${s.name}」`)
-      void refresh()
-    }
-  }
-
-  const doRemove = async (s: SpecRecord) => {
-    if (!confirm(`确定移除「${s.name}」？其技能与知识将不再参与。`)) return
-    const ok = await removeSpec(s.id)
-    if (ok) {
-      onToast(`已移除「${s.name}」`)
-      void refresh()
-    }
-  }
-
-  return (
-    <>
-      <div className="section-hint">
-        专业化能力包是面向专业领域的增量包（如建筑、电网），打包为 zip（内含 manifest.json + skills/*.yaml + knowledge/*）。
-        安装后按包启用：技能注册进技能系统、内置知识文档入库到知识库；禁用后自动隔离，不影响普通用户。
-      </div>
-
-      <div className="sub-model-card" style={{ marginBottom: 12 }}>
-        <div className="sub-model-head">
-          <span className="sub-idx">安装专业化包</span>
-        </div>
-        <div className="field-row">
-          <label className="field" style={{ flex: 1 }}>
-            <span>选择 .zip 能力包</span>
-            <input type="file" accept=".zip" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          </label>
-          {file && <div className="meta" style={{ alignSelf: 'flex-end' }}>{file.name}</div>}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn primary" onClick={() => void doInstall()} disabled={installing || !file}>
-            {installing ? '安装中…' : '安装并启用'}
-          </button>
-        </div>
-        {error && <div className="meta" style={{ color: '#ff6b6b', marginTop: 8 }}>{error}</div>}
-      </div>
-
-      <div className="settings-section" style={{ maxHeight: 360 }}>
-        {loading ? (
-          <div className="empty-hint">加载中…</div>
-        ) : specs.length === 0 ? (
-          <div className="empty-hint">未安装任何专业化包。选择一个 .zip 能力包安装以扩展专业能力。</div>
-        ) : (
-          specs.map((s) => (
-            <div key={s.id} className="sub-model-card">
-              <div className="sub-model-head">
-                <span className="sub-idx">
-                  {s.icon ?? '🧩'} {s.name} v{s.version} {s.category ? `[${s.category}]` : ''}
-                  <span className="meta" style={{ color: s.enabled ? '#4caf50' : '#9e9e9e', marginLeft: 6 }}>
-                    {s.enabled ? '已启用' : '已禁用'}
-                  </span>
-                </span>
-              </div>
-              <div style={{ fontSize: 13, lineHeight: 1.6 }}>{s.description || '（无简介）'}</div>
-              <div className="meta">技能 {s.skillCount} 个 · 知识文档 {s.knowledgeCount} 篇 · {new Date(s.installedAt).toLocaleString()}</div>
-              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                <button className="btn" onClick={() => void doToggle(s)}>
-                  {s.enabled ? '禁用' : '启用'}
-                </button>
-                <button className="btn-link danger" onClick={() => void doRemove(s)}>移除</button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </>
-  )
-}
-
-function MemoryPanel() {
-  const [entries, setEntries] = useState<MemoryEntry[]>([])
-  const [content, setContent] = useState('')
-  const [scope, setScope] = useState<'user' | 'project' | 'auto'>('auto')
-  const [tags, setTags] = useState('')
-  const [q, setQ] = useState('')
-  const [filterScope, setFilterScope] = useState<'all' | 'user' | 'project' | 'auto'>('all')
-  const [loading, setLoading] = useState(false)
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      if (filterScope !== 'all') params.set('scope', filterScope)
-      if (q) params.set('q', q)
-      const res = await apiFetch(`/api/memory?${params}`)
-      if (res.ok) {
-        const data = (await res.json()) as { entries: MemoryEntry[] }
-        setEntries(data.entries)
-      }
-    } catch {
-      /* ignore */
-    } finally {
-      setLoading(false)
-    }
-  }, [filterScope, q])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  const addMemory = async () => {
-    const c = content.trim()
-    if (!c) return
-    try {
-      const res = await apiFetch('/api/memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: c,
-          scope,
-          tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
-        }),
-      })
-      if (res.ok) {
-        setContent('')
-        setTags('')
-        void refresh()
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const removeMemory = async (id: string) => {
-    try {
-      const res = await apiFetch(`/api/memory/${encodeURIComponent(id)}`, { method: 'DELETE' })
-      if (res.ok) void refresh()
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const clearAll = async () => {
-    if (!confirm('确定清空全部记忆？此操作不可撤销。')) return
-    try {
-      await apiFetch('/api/memory/clear', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      void refresh()
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return (
-    <>
-      <div className="section-hint">
-        AI 会自动将相关记忆注入到每次对话的 systemPrompt（user {'>'} project {'>'} auto 排序，4KB 截断）。
-        AI 运行时也可调用 <code>remember</code> / <code>recall</code> 工具。
-      </div>
-
-      <div className="sub-model-card">
-        <div className="sub-model-head">
-          <span className="sub-idx">添加记忆</span>
-        </div>
-        <label className="field">
-          <span>内容</span>
-          <input value={content} placeholder="要记住的事实或偏好" onChange={(e) => setContent(e.target.value)} />
-        </label>
-        <div className="field-row">
-          <label className="field">
-            <span>作用域</span>
-            <select value={scope} onChange={(e) => setScope(e.target.value as 'user' | 'project' | 'auto')}>
-              <option value="user">user（跨项目偏好）</option>
-              <option value="project">project（项目上下文）</option>
-              <option value="auto">auto（自动学习）</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>标签（逗号分隔）</span>
-            <input value={tags} placeholder="code-style, tech-stack" onChange={(e) => setTags(e.target.value)} />
-          </label>
-        </div>
-        <button className="btn primary" onClick={addMemory} disabled={!content.trim()}>
-          添加
-        </button>
-      </div>
-
-      <div className="field-row" style={{ marginBottom: 12 }}>
-        <label className="field">
-          <span>搜索</span>
-          <input value={q} placeholder="关键词" onChange={(e) => setQ(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>作用域</span>
-          <select value={filterScope} onChange={(e) => setFilterScope(e.target.value as 'all' | 'user' | 'project' | 'auto')}>
-            <option value="all">全部</option>
-            <option value="user">user</option>
-            <option value="project">project</option>
-            <option value="auto">auto</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="settings-section" style={{ maxHeight: 280 }}>
-        {loading ? (
-          <div className="empty-hint">加载中…</div>
-        ) : entries.length === 0 ? (
-          <div className="empty-hint">无记忆。AI 运行时调用 remember 工具或在此添加。</div>
-        ) : (
-          entries.map((e) => (
-            <div key={e.id} className="sub-model-card">
-              <div className="sub-model-head">
-                <span className="sub-idx">
-                  [{e.scope}] {e.tags?.length ? ` {${e.tags.join(',')}}` : ''}
-                </span>
-                <button className="btn-link danger" onClick={() => void removeMemory(e.id)}>
-                  删除
-                </button>
-              </div>
-              <div style={{ fontSize: 13, lineHeight: 1.6 }}>{e.content}</div>
-              {e.workspace && <div className="meta">@{e.workspace}</div>}
-            </div>
-          ))
-        )}
-      </div>
-
-      {entries.length > 0 && (
-        <button className="btn-link danger" onClick={void clearAll} style={{ marginTop: 8 }}>
-          清空全部
-        </button>
-      )}
-    </>
-  )
-}
-
-interface SkillEntry {
-  name: string
-  description: string
-  icon?: string
-  category?: string
-  tags?: string[]
-  template?: string
-  inputs?: Record<string, unknown>
-  tools?: string[]
-  version?: string
-  visibility?: string
-  memory?: { scope: string; tags?: string[] }
-}
-
-interface SkillUploadCandidate {
-  sourceFile: string
-  skill: SkillEntry | null
-  issues: string[]
-  review: {
-    status: 'approve' | 'reject' | 'needs_fix' | 'skipped'
-    feedback: string
-  }
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      const idx = result.indexOf(',')
-      resolve(idx >= 0 ? result.slice(idx + 1) : result)
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
-
-const UPLOAD_ACCEPT = '.yaml,.yml,.zip'
-
-function SkillPanel() {
-  const [skills, setSkills] = useState<SkillEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [q, setQ] = useState('')
-  const [showAdd, setShowAdd] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newDesc, setNewDesc] = useState('')
-  const [newTemplate, setNewTemplate] = useState('')
-  const [newCategory, setNewCategory] = useState('')
-  const [runSkill, setRunSkill] = useState<SkillEntry | null>(null)
-  const [runArgs, setRunArgs] = useState('{}')
-  const [runResult, setRunResult] = useState('')
-  const [showUpload, setShowUpload] = useState(false)
-  const [uploadFiles, setUploadFiles] = useState<File[]>([])
-  const [uploadScope, setUploadScope] = useState<'global' | 'project'>('global')
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState('')
-  const [uploadCandidates, setUploadCandidates] = useState<SkillUploadCandidate[]>([])
-  const [installing, setInstalling] = useState('')
-  const uploadInputRef = useRef<HTMLInputElement>(null)
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await apiFetch(`/api/skills?q=${encodeURIComponent(q)}`)
-      if (res.ok) {
-        const data = (await res.json()) as { skills: SkillEntry[] }
-        setSkills(data.skills)
-      }
-    } catch {
-      /* ignore */
-    } finally {
-      setLoading(false)
-    }
-  }, [q])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  async function addSkill() {
-    const res = await apiFetch('/api/skills', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: newName,
-        description: newDesc,
-        template: newTemplate,
-        category: newCategory || undefined,
-        inputs: { type: 'object', properties: { input: { type: 'string' } }, required: ['input'] },
-        tools: ['read_file', 'shell'],
-      }),
-    })
-    if (res.ok) {
-      setShowAdd(false)
-      setNewName('')
-      setNewDesc('')
-      setNewTemplate('')
-      setNewCategory('')
-      void refresh()
-    }
-  }
-
-  async function removeSkill(name: string) {
-    await apiFetch(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
-    void refresh()
-  }
-
-  async function executeSkill() {
-    if (!runSkill) return
-    let args = {}
-    try {
-      args = JSON.parse(runArgs)
-    } catch {
-      setRunResult('✗ 参数必须是合法 JSON')
-      return
-    }
-    const res = await apiFetch(`/api/skills/${encodeURIComponent(runSkill.name)}/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ args }),
-    })
-    const data = (await res.json()) as { prompt?: string; error?: string }
-    setRunResult(data.error ? `✗ ${data.error}` : data.prompt ?? '')
-  }
-
-  async function performUpload() {
-    if (!uploadFiles.length) {
-      setUploadError('请先选择 .yaml/.yml/.zip 文件')
-      return
-    }
-    setUploading(true)
-    setUploadError('')
-    setUploadCandidates([])
-    try {
-      const files = await Promise.all(
-        uploadFiles.map(async (f) => ({ name: f.name, dataBase64: await fileToBase64(f) })),
-      )
-      const res = await apiFetch('/api/skills/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files, review: true }),
-      })
-      const data = (await res.json()) as { candidates?: SkillUploadCandidate[]; error?: string }
-      if (!res.ok) {
-        setUploadError(data.error ?? `上传失败（HTTP ${res.status}）`)
-        return
-      }
-      setUploadCandidates(data.candidates ?? [])
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  async function installCandidate(c: SkillUploadCandidate) {
-    if (!c.skill) return
-    setInstalling(c.sourceFile)
-    setUploadError('')
-    try {
-      const res = await apiFetch('/api/skills/install', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skill: c.skill, scope: uploadScope }),
-      })
-      const data = (await res.json()) as { skill?: SkillEntry; dir?: string; error?: string }
-      if (!res.ok) {
-        setUploadError(data.error ?? `安装失败（HTTP ${res.status}）`)
-        return
-      }
-      setUploadCandidates([])
-      setUploadFiles([])
-      setShowUpload(false)
-      void refresh()
-      setUploadError(`✓ 已安装到 ${uploadScope === 'global' ? '全局' : '当前项目'}`)
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setInstalling('')
-    }
-  }
-
-  return (
-    <>
-      <div className="section-hint">
-        技能是可复用的提示词模板 + 输入参数 + 工具子集。对话中输入 <code>/skill name args</code> 调用，
-        或让 AI 自动调用 <code>use_skill</code> 工具。
-      </div>
-
-      <div className="field-row" style={{ marginBottom: 12 }}>
-        <label className="field">
-          <span>搜索</span>
-          <input value={q} placeholder="名称/描述关键词" onChange={(e) => setQ(e.target.value)} />
-        </label>
-        <button className="btn primary" onClick={() => setShowAdd(true)}>
-          + 新建
-        </button>
-        <button className="btn" onClick={() => { setShowUpload(true); setUploadError(''); setUploadCandidates([]) }}>
-          ⬆ 上传
-        </button>
-      </div>
-
-      {showUpload && (
-        <div className="sub-model-card" style={{ marginBottom: 12 }}>
-          <div className="sub-model-head">
-            <span className="sub-idx">上传技能（.yaml / .zip 批量）</span>
-            <button className="btn-link" onClick={() => setShowUpload(false)}>
-              关闭
-            </button>
-          </div>
-          <div className="field-row" style={{ marginBottom: 8 }}>
-            <label className="field" style={{ flex: 1 }}>
-              <span>选择文件</span>
-              <input
-                ref={uploadInputRef}
-                type="file"
-                multiple
-                accept={UPLOAD_ACCEPT}
-                onChange={(e) => setUploadFiles(Array.from(e.target.files ?? []))}
-              />
-            </label>
-            <label className="field" style={{ maxWidth: 160 }}>
-              <span>安装位置</span>
-              <select value={uploadScope} onChange={(e) => setUploadScope(e.target.value as 'global' | 'project')}>
-                <option value="global">全局</option>
-                <option value="project">当前项目</option>
-              </select>
-            </label>
-          </div>
-          {uploadFiles.length > 0 && (
-            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
-              已选：{uploadFiles.map((f) => f.name).join('、')}
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn primary" onClick={() => void performUpload()} disabled={uploading || !uploadFiles.length}>
-              {uploading ? '解析中…' : '上传并审核'}
-            </button>
-            <button className="btn" onClick={() => { setUploadFiles([]); setUploadCandidates([]); setUploadError('') }}>
-              清空
-            </button>
-          </div>
-          {uploadError && <div className="meta" style={{ color: uploadError.startsWith('✓') ? '#4caf50' : '#ff6b6b', marginTop: 8 }}>{uploadError}</div>}
-          {uploadCandidates.length > 0 && (
-            <div className="settings-section" style={{ maxHeight: 300, marginTop: 10 }}>
-              {uploadCandidates.map((c, i) => {
-                const ok = c.review.status !== 'reject' && c.issues.length === 0 && !!c.skill
-                return (
-                  <div key={`${c.sourceFile}-${i}`} className="sub-model-card">
-                    <div className="sub-model-head">
-                      <span className="sub-idx">
-                        {c.skill?.icon ?? '📄'} {c.sourceFile} · {c.skill?.name ?? '无效'}
-                      </span>
-                      <span
-                        className="meta"
-                        style={{
-                          color:
-                            c.review.status === 'approve' ? '#4caf50'
-                              : c.review.status === 'reject' ? '#ff6b6b'
-                                : c.review.status === 'needs_fix' ? '#ffa726'
-                                  : '#9e9e9e',
-                        }}
-                      >
-                        {c.review.status === 'approve' ? 'AI 通过'
-                          : c.review.status === 'reject' ? 'AI 拒绝'
-                            : c.review.status === 'needs_fix' ? '需修正'
-                              : '未审核'}
-                      </span>
-                    </div>
-                    {c.skill?.description && <div style={{ fontSize: 13, lineHeight: 1.6 }}>{c.skill.description}</div>}
-                    {c.review.feedback && <div className="meta" style={{ marginTop: 4 }}>意见：{c.review.feedback}</div>}
-                    {c.issues.length > 0 && (
-                      <div className="meta" style={{ color: '#ff6b6b', marginTop: 4 }}>
-                        问题：{c.issues.join('；')}
-                      </div>
-                    )}
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                      <button
-                        className="btn primary"
-                        disabled={!ok || installing === c.sourceFile}
-                        onClick={() => void installCandidate(c)}
-                      >
-                        {installing === c.sourceFile ? '安装中…' : '安装'}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {showAdd && (
-        <div className="sub-model-card" style={{ marginBottom: 12 }}>
-          <div className="sub-model-head">
-            <span className="sub-idx">新建技能</span>
-            <button className="btn-link" onClick={() => setShowAdd(false)}>
-              取消
-            </button>
-          </div>
-          <label className="field">
-            <span>名称</span>
-            <input value={newName} placeholder="如 code-review" onChange={(e) => setNewName(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>描述</span>
-            <input value={newDesc} placeholder="技能用途" onChange={(e) => setNewDesc(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>分类</span>
-            <input value={newCategory} placeholder="如 dev / writing" onChange={(e) => setNewCategory(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>提示词模板（含 {`{{input}}`} 占位符）</span>
-            <textarea
-              value={newTemplate}
-              placeholder="你是专家。处理：{{input}}"
-              onChange={(e) => setNewTemplate(e.target.value)}
-              rows={4}
-              style={{ fontFamily: 'monospace' }}
-            />
-          </label>
-          <button className="btn primary" onClick={addSkill} disabled={!newName.trim() || !newTemplate.trim()}>
-            保存
-          </button>
-        </div>
-      )}
-
-      <div className="settings-section" style={{ maxHeight: 360 }}>
-        {loading ? (
-          <div className="empty-hint">加载中…</div>
-        ) : skills.length === 0 ? (
-          <div className="empty-hint">无技能。点击「+ 新建」创建。</div>
-        ) : (
-          skills.map((s) => (
-            <div key={s.name} className="sub-model-card">
-              <div className="sub-model-head">
-                <span className="sub-idx">
-                  {s.icon ?? '📌'} {s.name} {s.category ? `[${s.category}]` : ''}
-                </span>
-                <div>
-                  <button className="btn-link" onClick={() => { setRunSkill(s); setRunArgs('{}'); setRunResult('') }}>
-                    运行
-                  </button>
-                  <button className="btn-link danger" onClick={() => void removeSkill(s.name)}>
-                    删除
-                  </button>
-                </div>
-              </div>
-              <div style={{ fontSize: 13, lineHeight: 1.6 }}>{s.description}</div>
-              {s.tools?.length ? <div className="meta">工具：{s.tools.join(', ')}</div> : null}
-              {runSkill?.name === s.name && (
-                <div style={{ marginTop: 8, padding: 8, background: 'rgba(0,0,0,0.2)', borderRadius: 6 }}>
-                  <label className="field">
-                    <span>参数（JSON）</span>
-                    <textarea
-                      value={runArgs}
-                      onChange={(e) => setRunArgs(e.target.value)}
-                      rows={2}
-                      style={{ fontFamily: 'monospace', fontSize: 12 }}
-                    />
-                  </label>
-                  <button className="btn primary" style={{ marginTop: 4 }} onClick={() => void executeSkill()}>
-                    执行
-                  </button>
-                  {runResult && (
-                    <pre style={{ marginTop: 8, fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto' }}>
-                      {runResult}
-                    </pre>
-                  )}
-                </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-    </>
-  )
-}
-
-interface ToolEntry {
-  name: string
-  description: string
-  schema: Record<string, unknown>
-}
-
-function ToolPanel() {
-  const [tools, setTools] = useState<ToolEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState<ToolEntry | null>(null)
-  const [args, setArgs] = useState('{}')
-  const [result, setResult] = useState('')
-  const [running, setRunning] = useState(false)
-
-  useEffect(() => {
-    void (async () => {
-      setLoading(true)
-      try {
-        const res = await apiFetch('/api/tools')
-        if (res.ok) {
-          const data = (await res.json()) as { tools: ToolEntry[] }
-          setTools(data.tools)
-        }
-      } catch {
-        /* ignore */
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [])
-
-  async function testTool() {
-    if (!selected) return
-    let parsed = {}
-    try {
-      parsed = JSON.parse(args)
-    } catch {
-      setResult('✗ 参数必须是合法 JSON')
-      return
-    }
-    setRunning(true)
-    setResult('')
-    try {
-      const res = await apiFetch(`/api/tools/${encodeURIComponent(selected.name)}/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ args: parsed }),
-      })
-      const data = (await res.json()) as { result?: unknown; error?: string }
-      setResult(data.error ? `✗ ${data.error}` : JSON.stringify(data.result, null, 2))
-    } catch (err) {
-      setResult(`✗ ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  const schemaProps = (selected?.schema as { properties?: Record<string, { type?: string; description?: string }> })?.properties ?? {}
-  const required = (selected?.schema as { required?: string[] })?.required ?? []
-
-  return (
-    <>
-      <div className="section-hint">
-        选择一个已注册的工具，输入参数（JSON），点击执行查看结果。这是扣子式的「试运行」面板。
-      </div>
-
-      <div className="settings-section" style={{ maxHeight: 200, marginBottom: 12 }}>
-        {loading ? (
-          <div className="empty-hint">加载中…</div>
-        ) : tools.length === 0 ? (
-          <div className="empty-hint">无工具</div>
-        ) : (
-          tools.map((t) => (
-            <button
-              key={t.name}
-              className={`sub-model-card ${selected?.name === t.name ? 'active' : ''}`}
-              style={{ cursor: 'pointer', textAlign: 'left', width: '100%', marginBottom: 4 }}
-              onClick={() => { setSelected(t); setArgs('{}'); setResult('') }}
-            >
-              <div style={{ fontWeight: 600 }}>{t.name}</div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>{t.description.slice(0, 100)}</div>
-            </button>
-          ))
-        )}
-      </div>
-
-      {selected && (
-        <div className="sub-model-card">
-          <div className="sub-model-head">
-            <span className="sub-idx">{selected.name}</span>
-          </div>
-          <div style={{ fontSize: 13, marginBottom: 8 }}>{selected.description}</div>
-          {Object.keys(schemaProps).length > 0 && (
-            <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>
-              参数：{Object.entries(schemaProps).map(([k, v]) => `${k}(${v.type ?? 'any'})`).join(', ')}
-              {required.length > 0 && ` · 必填：${required.join(', ')}`}
-            </div>
-          )}
-          <label className="field">
-            <span>参数（JSON）</span>
-            <textarea
-              value={args}
-              onChange={(e) => setArgs(e.target.value)}
-              rows={3}
-              style={{ fontFamily: 'monospace', fontSize: 12 }}
-            />
-          </label>
-          <button className="btn primary" style={{ marginTop: 8 }} onClick={() => void testTool()} disabled={running}>
-            {running ? '执行中…' : '执行'}
-          </button>
-          {result && (
-            <pre style={{ marginTop: 8, fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 280, overflow: 'auto' }}>
-              {result}
-            </pre>
-          )}
-        </div>
-      )}
-    </>
-  )
-}
-
-function UpdatePanel() {
-  const [checking, setChecking] = useState(false)
-  const [updating, setUpdating] = useState(false)
-  const [checkResult, setCheckResult] = useState<UpdateCheckResult | null>(null)
-  const [message, setMessage] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  async function doCheck() {
-    setChecking(true)
-    setMessage('')
-    setCheckResult(null)
-    try {
-      setCheckResult(await checkUpdate())
-    } catch (err) {
-      setMessage(`检查失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setChecking(false)
-    }
-  }
-
-  async function doUpdate() {
-    setUpdating(true)
-    setMessage('')
-    try {
-      const r = await triggerUpdate()
-      setMessage(r.ok ? (r.message ?? '已提交更新，即将重启服务') : `更新失败：${r.error ?? '未知错误'}`)
-    } catch (err) {
-      setMessage(`更新失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setUpdating(false)
-    }
-  }
-
-  async function onFile(input: HTMLInputElement) {
-    const file = input.files?.[0]
-    if (!file) return
-    setMessage('')
-    try {
-      const data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '')
-        reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
-        reader.readAsDataURL(file)
-      })
-      const r = await installUpdateZip(data, file.name)
-      setMessage(r.ok ? (r.message ?? '已安装增量包，即将重启服务') : `安装失败：${r.error ?? '未知错误'}`)
-    } catch (err) {
-      setMessage(`安装失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      input.value = ''
-    }
-  }
-
-  return (
-    <>
-      <div className="section-hint">
-        应用内更新：在线检查新版本并全自动下载应用，或手动安装本地增量包（.zip）。
-      </div>
-
-      <div className="sub-model-card" style={{ marginBottom: 12 }}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>在线更新</div>
-        {checkResult && (
-          <div style={{ fontSize: 13, marginBottom: 8 }}>
-            当前版本：{checkResult.currentVersion}
-            {checkResult.hasUpdate ? (
-              <> · 最新版本：{checkResult.latestVersion}（可更新）</>
-            ) : (
-              <> · 已是最新版本</>
-            )}
-            {checkResult.releaseNotes && (
-              <div style={{ marginTop: 4, opacity: 0.7 }}>{checkResult.releaseNotes}</div>
-            )}
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" onClick={() => void doCheck()} disabled={checking || updating}>
-            {checking ? '检查中…' : '检查更新'}
-          </button>
-          <button
-            className="btn primary"
-            onClick={() => void doUpdate()}
-            disabled={!checkResult?.hasUpdate || updating || checking}
-          >
-            {updating ? '更新中…' : '立即更新'}
-          </button>
-        </div>
-      </div>
-
-      <div className="sub-model-card">
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>手动安装增量包</div>
-        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
-          选择本地 .zip 增量包进行离线更新，安装后会自动重启服务。
-        </div>
-        <input ref={fileRef} type="file" accept=".zip" onChange={(e) => void onFile(e.target)} />
-      </div>
-
-      {message && <div className="section-hint" style={{ marginTop: 12 }}>{message}</div>}
-    </>
   )
 }

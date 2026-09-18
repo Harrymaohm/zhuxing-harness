@@ -49,8 +49,28 @@ Tools declared with a `sandbox` field (such as `shell`, `write_file`) are automa
 - `harness session show <id>` can replay the full trace (system prompts, requests, tool results are all recorded)
 - Log output is uniformly masked and never writes credentials
 
+## MCP servers (external processes, capabilities merged in)
+
+With `mcpServers` (stdio) configured, external MCP servers are launched as subprocesses and their tools are
+registered for the model as `mcp__<server>__<tool>`.
+
+- **Attaching a server merges its capabilities into your agent**: the server is third-party code running in an
+  **external process**, and its behaviour is not controlled by this software
+- **The path sandbox cannot constrain what it touches**: the sandbox is "tool metadata + path-prefix checks" and
+  only governs calls that go through the tool registry with `sandbox` argument semantics; an MCP tool's real file
+  access happens in a process we cannot see
+- **Only attach servers you trust**; `command: "npx"` / `uvx` means "fetch-and-execute over the network", so a
+  **different code version may run each time**
+- The client honestly declares empty capabilities (no roots / sampling / elicitation) and negotiates two protocol
+  versions: modern `2026-07-28` (`server/discover` + per-request `_meta`) and legacy `2025-06-18` (`initialize`
+  handshake); any other version returned by the server causes a disconnect
+- Audit: the plugin declares `permissions.shell = [every configured command]`, visible via
+  `harness introspect plugins`; tool arguments and results still land in the session log (masked at the exit)
+
 ## Recommendations
 
 1. Pin the sandbox level in production and refine `deniedCommands`
 2. When using `danger-full-access` in service-oriented/unattended scenarios, be sure to isolate the environment
 3. Rotate the API Key regularly; restrict plugin sources for sensitive projects
+4. Pin MCP server versions (avoid `npx` always fetching latest), attach trusted sources only, and do not treat an
+   MCP server as a sandboxed tool

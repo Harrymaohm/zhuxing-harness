@@ -3,7 +3,7 @@
 > **一切皆插件 · 权限受控 · 知识自增长 · 技能可复用**
 > 一个能从源码自研、随使用不断沉淀知识与技能的国产开源 Agent 运行时。
 
-[![Version](https://img.shields.io/badge/version-0.3.8-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-Source--Available%20%2F%20Commercial-9c27b0.svg)](#许可)
 [![Node](https://img.shields.io/badge/node-%E2%89%A5%2020-0078d4.svg)](#安装)
 [![Status](https://img.shields.io/badge/status-Active%20Development-brightgreen.svg)](#roadmap-向自进化内核演进)

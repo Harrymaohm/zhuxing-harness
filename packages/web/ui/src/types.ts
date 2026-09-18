@@ -15,6 +15,10 @@ export interface ChatMessage {
   toolName?: string
   toolArgs?: string
   toolResult?: string
+  /** 思考 / 推理内容（推理模型 reasoning_content，刷新还原与实时流式共用）。 */
+  thinking?: string
+  /** 由口语指令精炼出的任务书（本轮执行依据，界面以「任务书」块展示）。 */
+  brief?: string
   error?: boolean
   /** 实时运行中（历史会话重建时不设此字段 = 已完成）。 */
   running?: boolean
@@ -121,6 +125,8 @@ export interface WebConfig {
   multimodal?: boolean
   /** 自生长知识库配置（提供后启用 RAG 注入）。 */
   knowledge?: KnowledgeOptions
+  /** 指令精炼：每轮执行前先把口语指令改写成任务书（默认开启）。 */
+  refineInstruction?: boolean
 }
 
 /** 自生长知识库配置。 */

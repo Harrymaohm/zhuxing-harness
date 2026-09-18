@@ -63,13 +63,17 @@ export class MemorySessionStore implements SessionStore {
   ) {}
 
   async append(evt: SessionEvent): Promise<void> {
-    const list = this.sessions.get(evt.sessionId)
-    if (list) {
-      list.push(evt)
-      if (this.maxEventsPerSession && list.length > this.maxEventsPerSession) {
-        const overflow = list.length - this.maxEventsPerSession
-        list.splice(0, overflow)
-      }
+    // 事件日志是唯一的可观测性事实来源：任何 append 都必须落盘，
+    // 会话未显式 createSession 时按需初始化，禁止静默丢弃（Model-visible means logged）。
+    let list = this.sessions.get(evt.sessionId)
+    if (!list) {
+      list = []
+      this.sessions.set(evt.sessionId, list)
+    }
+    list.push(evt)
+    if (this.maxEventsPerSession && list.length > this.maxEventsPerSession) {
+      const overflow = list.length - this.maxEventsPerSession
+      list.splice(0, overflow)
     }
   }
 

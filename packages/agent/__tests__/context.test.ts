@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, ChatProvider, ChatResult, ToolCall } from '@zhuxing/harness-llm'
-import { estimateMessagesTokens, estimateTokens, contentText, manageContext, sanitizeMessages, summarizeHistory } from '../src/context.js'
+import { estimateMessagesTokens, estimateTokens, contentText, manageContext, pruneToolResults, sanitizeMessages, summarizeHistory } from '../src/context.js'
 
 function msg(role: ChatMessage['role'], content: string): ChatMessage {
   return { role, content }
@@ -64,6 +64,61 @@ describe('context 管理', () => {
     expect(result.trimmed).toBe(true)
     expect(result.summarized).toBe(false)
     expect(result.messages[0].content).toBe('y'.repeat(1500))
+  })
+
+  it('净收益校验：摘要不长于被遮蔽段才采纳', async () => {
+    // early = [assistant a*100]（约 29 token）：400 字的「摘要」比原文还长 → 拒绝
+    const messages = [msg('user', 'u'.repeat(100)), msg('assistant', 'a'.repeat(100)), msg('user', 'v'.repeat(100)), msg('user', '最近')]
+    const llm = (content: string): ChatProvider => ({
+      name: 'summarizer',
+      async chat(): Promise<ChatResult> {
+        return { content, toolCalls: [], finishReason: 'stop' }
+      },
+    })
+    const bloated = await manageContext(messages, { maxTokens: 50, llm: llm('S'.repeat(400)) })
+    expect(bloated.trimmed).toBe(true)
+    expect(bloated.summarized).toBe(false)
+    const concise = await manageContext(messages, { maxTokens: 50, llm: llm('早期讨论了若干问题。') })
+    expect(concise.summarized).toBe(true)
+    expect(String(concise.messages[1].content)).toContain('早期讨论了若干问题。')
+  })
+
+  it('pruneToolResults：只裁超长旧结果、保留最近 N 条与头尾、幂等', () => {
+    const big = (ch: string) => ch.repeat(5000)
+    const messages: ChatMessage[] = [
+      msg('system', 's'),
+      { role: 'tool', content: big('a'), toolCallId: 't1' },
+      { role: 'tool', content: big('b'), toolCallId: 't2' },
+      { role: 'tool', content: big('c'), toolCallId: 't3' },
+    ]
+    const out = pruneToolResults(messages, 1)
+    expect(out.count).toBe(2)
+    expect(out.messages[1].content).toContain('已裁剪')
+    expect(out.messages[2].content).toContain('已裁剪')
+    expect(String(out.messages[1].content).startsWith('a')).toBe(true)
+    expect(String(out.messages[1].content).endsWith('a')).toBe(true)
+    expect(out.messages[3].content).toBe(big('c')) // 最近 1 条原样保留
+    // 幂等：已裁剪的不再重复处理
+    const again = pruneToolResults(out.messages, 1)
+    expect(again.count).toBe(0)
+    expect(again.messages).toBe(out.messages)
+    // 未超阈值的小结果不动
+    const small: ChatMessage[] = [{ role: 'tool', content: 'ok', toolCallId: 't1' }]
+    expect(pruneToolResults(small, 0).count).toBe(0)
+  })
+
+  it('manageContext 先确定性裁剪历史工具结果（预算内即返回、不触发摘要）', async () => {
+    const messages: ChatMessage[] = [
+      msg('system', 's'),
+      { role: 'tool', content: 'a'.repeat(5000), toolCallId: 't1' },
+      { role: 'tool', content: 'b'.repeat(5000), toolCallId: 't2' },
+      msg('user', '最近的问题'),
+    ]
+    const result = await manageContext(messages, { maxTokens: 100000, pruneKeepRecent: 0 })
+    expect(result.prunedCount).toBe(2)
+    expect(result.trimmed).toBe(false)
+    expect(result.messages).not.toBe(messages)
+    expect(String(result.messages[1].content)).toContain('已裁剪')
   })
 
   it('estimateTokens 使用字符/token 近似', () => {

@@ -1,0 +1,49 @@
+{
+  "id": "feat-slugify-options",
+  "taskType": "feature",
+  "title": "为 slugify 增加 separator 与 maxLength 选项",
+  "task": "工作区里的 slug.mjs 目前只会把空白替换成连字符。请在不破坏默认行为的前提下，为 slugify 增加第二个参数 options，支持两个选项：separator（自定义分隔符，默认仍是 '-'）与 maxLength（正整数，超出时截断到该长度并去掉结尾多余的分隔符）。slug.test.mjs 已经写好了期望行为，实现到它全绿即可。只改 slug.mjs。",
+  "severity": "P2",
+  "tags": ["feature", "api-extension"],
+  "repository": {
+    "mode": "fixture",
+    "fixture": "./fixtures/feat-slugify"
+  },
+  "constraints": {
+    "maxSteps": 12,
+    "maxWallMs": 120000,
+    "allowedPaths": ["slug.mjs"]
+  },
+  "verification": {
+    "runner": "tap",
+    "command": "node --test --test-reporter=tap slug.test.mjs",
+    "failToPass": ["slugify 支持自定义分隔符", "slugify 支持最大长度截断"],
+    "passToPass": ["slugify 默认行为不变"]
+  },
+  "scoring": ["outcome", "process", "compliance", "cost"],
+  "mock": {
+    "rules": [{ "when": { "hasTools": false }, "reply": { "content": "OK" } }],
+    "plan": [
+      {
+        "content": "读代码定位：slugify 只有单参数实现，options 被完全忽略。需要补上 separator 与 maxLength 两条分支，并保证默认路径不变。",
+        "toolCalls": [
+          { "name": "read_file", "arguments": { "path": "slug.mjs" } }
+        ]
+      },
+      {
+        "content": "已按选项改造实现：separator 默认 '-'，maxLength 截断后清理结尾分隔符。",
+        "toolCalls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "slug.mjs",
+              "content": "/**\n * 演示模块：把标题转成 URL slug。\n */\n\n/** 生成 slug，支持自定义分隔符与最大长度截断。 */\nexport function slugify(input, options = {}) {\n  const separator = options.separator ?? '-'\n  const maxLength = options.maxLength\n  let out = String(input).trim().toLowerCase().replace(/\\s+/g, separator)\n  if (typeof maxLength === 'number' && maxLength > 0 && out.length > maxLength) {\n    out = out.slice(0, maxLength)\n    while (out.endsWith(separator)) out = out.slice(0, -1)\n  }\n  return out\n}\n"
+            }
+          }
+        ]
+      },
+      { "content": "实现完成，slug.test.mjs 的两条新用例与既有默认行为用例均可通过。" }
+    ],
+    "fallback": { "content": "任务已完成。" }
+  }
+}

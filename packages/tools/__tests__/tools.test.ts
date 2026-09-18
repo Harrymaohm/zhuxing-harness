@@ -42,6 +42,19 @@ describe('执行管道', () => {
     expect(result.error).toContain('超时')
   })
 
+  it('工具自身声明的 timeoutMs 生效（调用方未传 options 时）', async () => {
+    const reg = new ToolRegistryImpl()
+    reg.register({
+      name: 'slow',
+      description: '',
+      schema: {},
+      timeoutMs: 50,
+      execute: () => new Promise((r) => setTimeout(() => r({ text: 'x' }), 200)),
+    })
+    const result = await reg.execute('slow', {}, {})
+    expect(result.error).toContain('超时')
+  })
+
   it('失败重试后成功', async () => {
     let n = 0
     const reg = new ToolRegistryImpl()
@@ -109,5 +122,53 @@ describe('执行管道', () => {
     }
     await reg.execute('t', {}, { emit })
     expect(seen).toEqual(['done'])
+  })
+
+  it('before/after-exec 携带 sessionId 与 callId；after-exec 另带 durationMs/ok', async () => {
+    const reg = new ToolRegistryImpl()
+    reg.register({ name: 't', description: '', schema: {}, execute: () => ({ text: 'done' }) })
+    const before: Array<Record<string, unknown>> = []
+    const after: Array<Record<string, unknown>> = []
+    const emit = async (event: string, payload: unknown) => {
+      if (event === 'tools/before-exec') before.push(payload as Record<string, unknown>)
+      if (event === 'tools/after-exec') after.push(payload as Record<string, unknown>)
+      return true
+    }
+    await reg.execute('t', { a: 1 }, { emit, sessionId: 'sess-9', callId: 'call-7' })
+
+    expect(before).toHaveLength(1)
+    expect(before[0].sessionId).toBe('sess-9')
+    expect(before[0].callId).toBe('call-7')
+
+    expect(after).toHaveLength(1)
+    expect(after[0].sessionId).toBe('sess-9')
+    expect(after[0].callId).toBe('call-7')
+    expect(after[0].ok).toBe(true)
+    expect(typeof after[0].durationMs).toBe('number')
+    expect(after[0].durationMs as number).toBeGreaterThanOrEqual(0)
+  })
+
+  it('失败路径的 after-exec：ok=false，durationMs 非负', async () => {
+    const reg = new ToolRegistryImpl()
+    reg.register({
+      name: 'boom',
+      description: '',
+      schema: {},
+      execute: () => {
+        throw new Error('炸了')
+      },
+    })
+    const after: Array<Record<string, unknown>> = []
+    const emit = async (event: string, payload: unknown) => {
+      if (event === 'tools/after-exec') after.push(payload as Record<string, unknown>)
+      return true
+    }
+    await reg.execute('boom', {}, { emit, sessionId: 'sess-1', callId: 'call-2' })
+    expect(after).toHaveLength(1)
+    expect(after[0].ok).toBe(false)
+    expect(after[0].error).toBe(true)
+    expect(after[0].sessionId).toBe('sess-1')
+    expect(after[0].callId).toBe('call-2')
+    expect(after[0].durationMs as number).toBeGreaterThanOrEqual(0)
   })
 })

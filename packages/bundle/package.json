@@ -1,6 +1,6 @@
 {
   "name": "@zhuxing/harness-bundle",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "筑星 Harness 基础 bundle：以插件形态组合沙箱/会话/工具/模型/循环（cli 与 web 共用）",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
@@ -21,6 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "test": "vitest run"
   },
   "dependencies": {

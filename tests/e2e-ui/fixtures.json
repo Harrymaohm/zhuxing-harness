@@ -1,0 +1,18 @@
+{
+  "webPort": 4319,
+  "chatUserMessage": "请用较长篇幅说明这次端到端回归覆盖了哪些主流程",
+  "streamBegin": "流式开始-7f2a",
+  "streamChunkCount": 180,
+  "streamChunkDelayMs": 45,
+  "streamChunkPrefix": "第",
+  "streamChunkSuffix": "段-7f2a",
+  "streamEnd": "流式结束-7f2a",
+  "refineDisabled": true,
+  "previewUserMessage": "请帮我预览工作区里的 e2e-preview.txt 这个文件",
+  "previewFileName": "e2e-preview.txt",
+  "previewFileContent": "E2E-PREVIEW-CONTENT-4f9a2c",
+  "previewReplyLead": "文件已就绪，请点击 ",
+  "previewReplyTail": " 查看内容。",
+  "terminalCommand": "echo e2e-ok",
+  "terminalMarker": "e2e-ok"
+}

@@ -1,6 +1,6 @@
 {
   "name": "@zhuxing/harness-cli",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "筑星 Harness CLI：run / validate / create-plugin / list",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
@@ -22,6 +22,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OpenAICompatibleProvider } from '../src/index.js'
+import type { ChatResult } from '../src/index.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -40,15 +41,15 @@ describe('OpenAI 流式（SSE）', () => {
     )
     const provider = new OpenAICompatibleProvider({ apiKey: 'k', model: 'm' })
     const tokens: string[] = []
-    let done
+    let done: ChatResult | undefined
     for await (const chunk of provider.stream!([{ role: 'user', content: 'x' }])) {
       if (chunk.token) tokens.push(chunk.token)
       if (chunk.done) done = chunk.done
     }
     expect(tokens).toEqual(['你', '好'])
-    expect(done.toolCalls).toEqual([{ id: 'c1', name: 't', arguments: '{"a":1}' }])
-    expect(done.content).toBe('你好')
-    expect(done.finishReason).toBe('tool_calls')
+    expect(done!.toolCalls).toEqual([{ id: 'c1', name: 't', arguments: '{"a":1}' }])
+    expect(done!.content).toBe('你好')
+    expect(done!.finishReason).toBe('tool_calls')
 
     // 请求体带 stream:true
     const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]

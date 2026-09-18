@@ -1,6 +1,6 @@
 {
   "name": "zhuxing-harness",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "private": true,
   "description": "筑星 Harness —— 可随意接入插件的 Agent Harness 体系",
   "license": "SEE LICENSE IN LICENSE",
@@ -15,14 +15,28 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "test:e2e": "vitest run tests",
+    "test:e2e": "vitest run --dir tests",
+    "test:e2e:ui": "playwright test",
+    "test:e2e:ui:win": "set PLAYWRIGHT_CHANNEL=msedge&& playwright test",
+    "test:eval": "node --test \"agent_harness_eval/__tests__/*.test.mjs\"",
+    "eval:boundaries": "node agent_harness_eval/run.mjs --quiet",
+    "eval:tasks": "node agent_harness_eval/run-tasks.mjs --repeats 2 --require-reproducible --min-coverage 1",
     "typecheck": "pnpm -r typecheck",
+    "typecheck:tests": "pnpm -r typecheck:tests && tsc -p tsconfig.test.json",
+    "typecheck:ui": "tsc -p packages/web/ui/tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "scan:secrets": "secretlint \"**/*\" --secretlintignore .secretlintignore",
+    "licenses:generate": "node scripts/gen-licenses.mjs",
+    "licenses:check": "node scripts/gen-licenses.mjs --check",
     "harness": "node packages/cli/dist/cli.js",
     "bench": "node scripts/bench.mjs",
     "bundle": "node scripts/bundle-cli.mjs",
-    "check": "pnpm -r build && pnpm typecheck && pnpm -r test && pnpm test:e2e"
+    "check": "pnpm lint && pnpm scan:secrets && pnpm licenses:check && pnpm -r build && pnpm typecheck:tests && pnpm typecheck:ui && pnpm -r test && pnpm test:e2e && pnpm test:eval"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^13.0.5",
     "@types/adm-zip": "^0.5.8",
     "@types/node": "^22.10.0",
     "@zhuxing/harness-agent": "workspace:^",
@@ -40,7 +54,12 @@
     "@zhuxing/harness-tools": "workspace:^",
     "adm-zip": "^0.6.0",
     "esbuild": "^0.28.0",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "secretlint": "^13.0.5",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^3.0.0"
   }
 }

@@ -1,0 +1,50 @@
+{
+  "id": "fr-recover-http500",
+  "taskType": "failure_recovery",
+  "title": "上游 5xx 下仍须完成 range 闭区间修复",
+  "task": "工作区里 range.mjs 的 range(start, end) 少返回一个元素：range(1, 3) 现在得到 [1, 2]，应当得到闭区间 [1, 2, 3]。请修好它，只改 range.mjs，不要动 sum。注意：本次运行期间模型上游会返回一次 5xx 错误，遇到时不要放弃，也不要谎报完成——继续把任务做完并复核结果。",
+  "severity": "P1",
+  "tags": ["failure_recovery", "fault-injection", "http500"],
+  "repository": {
+    "mode": "fixture",
+    "fixture": "./fixtures/fr-recover-http500"
+  },
+  "constraints": {
+    "maxSteps": 12,
+    "maxWallMs": 180000,
+    "allowedPaths": ["range.mjs"]
+  },
+  "verification": {
+    "runner": "tap",
+    "command": "node --test --test-reporter=tap range.test.mjs",
+    "failToPass": ["range 生成闭区间 [start, end]"],
+    "passToPass": ["sum 累加数组元素"]
+  },
+  "scoring": ["outcome", "process", "compliance", "cost"],
+  "mock": {
+    "rules": [{ "when": { "hasTools": false }, "reply": { "content": "OK" } }],
+    "plan": [
+      {
+        "content": "缺陷定位：循环条件写成 i < end，闭区间应为 i <= end，因此 end 本身被丢掉（range(4, 4) 也会返回空数组）。",
+        "toolCalls": [
+          { "name": "read_file", "arguments": { "path": "range.mjs" } }
+        ]
+      },
+      {
+        "content": "已把循环上界改为闭区间：range(1, 3) 现在返回 [1, 2, 3]，range(4, 4) 返回 [4]，sum 未改动。",
+        "toolCalls": [
+          {
+            "name": "write_file",
+            "arguments": {
+              "path": "range.mjs",
+              "content": "/**\n * 演示模块：整数区间与求和。\n */\n\n/** 生成闭区间 [start, end] 的整数数组。 */\nexport function range(start, end) {\n  const out = []\n  for (let i = start; i <= end; i += 1) out.push(i)\n  return out\n}\n\n/** 累加数组元素。本函数无缺陷，用于 PASS_TO_PASS 对照。 */\nexport function sum(values) {\n  return values.reduce((acc, v) => acc + v, 0)\n}\n"
+            }
+          }
+        ]
+      },
+      { "content": "修复完成：range 现在是闭区间语义。期间上游返回过一次 5xx，未影响交付结果。" }
+    ],
+    "faults": [{ "at": 4, "kind": "http500" }],
+    "fallback": { "content": "任务已完成。" }
+  }
+}
