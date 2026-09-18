@@ -257,6 +257,8 @@ node packages/cli/dist/cli.js doctor      # environment self-check
 
 A Windows NSIS installer is produced by `node scripts/build-nsis.mjs` (no admin required, installs to `%LOCALAPPDATA%\ZhuxingHarness`, bundles a portable Node runtime, start-menu shortcut and uninstaller).
 
+**Release policy — stable versions only.** GitHub Releases carry stable builds only. Intermediate development builds are never announced as a release and are not offered as an installation package.
+
 ### Configure a model
 
 ```bash

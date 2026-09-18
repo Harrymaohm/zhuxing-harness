@@ -257,6 +257,8 @@ node packages/cli/dist/cli.js doctor      # 环境自检
 
 Windows 安装包由 `node scripts/build-nsis.mjs` 生成（免管理员、装到 `%LOCALAPPDATA%\ZhuxingHarness`、内置便携 Node 运行时、开始菜单快捷方式与卸载器）。
 
+**发布策略：仅发布稳定版。** GitHub Releases 只承载正式稳定版本；开发过程中的中间构建不作为发布版本对外公布，也不提供安装包。
+
 ### 配置模型
 
 ```bash
